@@ -62,6 +62,8 @@ ACH example:
 
 #### Response `200`
 
+`decision`, `reason_code`, `exceptions[].code`, and `exceptions[].severity` are **closed codes** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch on those fields only.
+
 ```json
 {
   "decision": "return",

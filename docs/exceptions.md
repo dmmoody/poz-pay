@@ -1,5 +1,25 @@
 # Decisions, reasons, and exceptions
 
+## Closed vocabulary contract
+
+Codes are a **closed set**, owned by Postgres lookups and mirrored in the API:
+
+| Wire field | Lookup | Notes |
+|------------|--------|-------|
+| `decision` | `decision_codes` | `pay` \| `return` \| `review` |
+| `reason_code` | `reason_codes` | `OK` or any `exception_codes.code` |
+| `exceptions[].code` | `exception_codes` | Machine exception token |
+| `exceptions[].severity` | `exception_severities` | `hard` \| `soft` |
+
+**Normative**
+
+1. Control flow uses codes (and severity) only — exact match on the token.
+2. `reason` / `detail` are non-normative human text; wording may change without a version bump.
+3. Adding a code is a schema + docs change (seed row in the lookup), not a silent server invent.
+4. Persist path: `decision_audit.decision` / `reason_code` are FK-enforced; `exceptions` JSONB must only contain codes from `exception_codes` (enforced in app on write for the spike).
+
+Ints / numeric aliases are **out of scope** unless a core integration requires a parallel mapped field later.
+
 ## Decision values
 
 | `decision` | Meaning |

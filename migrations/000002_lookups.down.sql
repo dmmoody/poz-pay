@@ -1,0 +1,10 @@
+DROP TABLE IF EXISTS debit_credit_types;
+DROP TABLE IF EXISTS whitelist_statuses;
+DROP TABLE IF EXISTS rule_actions;
+DROP TABLE IF EXISTS rule_set_tiers;
+DROP TABLE IF EXISTS approve_modes;
+DROP TABLE IF EXISTS exception_codes;
+DROP TABLE IF EXISTS exception_severities;
+DROP TABLE IF EXISTS decision_codes;
+DROP TABLE IF EXISTS rail_types;
+DROP TABLE IF EXISTS party_types;
