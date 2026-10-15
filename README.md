@@ -2,6 +2,8 @@
 
 Positive pay spike: multi-tenant check + ACH decision engine (HTTP JSON).
 
+**Contracts:** see [`docs/`](docs/README.md) (decision API, exceptions, tenancy, check/ACH pipelines).
+
 ## Prerequisites
 
 - Docker + Docker Compose (Rancher Desktop / Docker Desktop)
