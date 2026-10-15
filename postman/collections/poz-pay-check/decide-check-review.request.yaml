@@ -1,0 +1,23 @@
+$kind: "http-request"
+name: decide-check-review
+method: POST
+url: '{{base_url}}/v1/decide'
+order: 3000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "rail": "check",
+      "fi_id": "{{fi_id}}",
+      "account_id": "{{account_id}}",
+      "correlation_id": "postman-check-review",
+      "check": {
+        "check_number": "1001",
+        "amount": 10050,
+        "payee": "ACME"
+      }
+    }
+examples: './.resources/decide-check-review.resources/examples'

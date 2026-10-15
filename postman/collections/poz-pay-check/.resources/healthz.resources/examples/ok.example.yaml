@@ -1,0 +1,19 @@
+$kind: "http-example"
+name: ok
+order: 1000
+request:
+  url: '{{base_url}}/healthz'
+  method: GET
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "status": "ok",
+        "database": "up"
+      }

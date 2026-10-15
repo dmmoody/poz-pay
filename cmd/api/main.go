@@ -8,23 +8,35 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/dmmoody/poz-pay/internal/api"
+	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/store/postgres"
 )
 
 func main() {
 	addr := envOr("API_ADDR", ":8080")
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"status":"ok"}`))
-	})
-
-	srv := &http.Server{
-		Addr:              addr,
-		Handler:           mux,
-		ReadHeaderTimeout: 5 * time.Second,
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		log.Fatal("DATABASE_URL is required")
 	}
+
+	ctx := context.Background()
+	db, err := postgres.Open(ctx, dbURL)
+	if err != nil {
+		log.Fatalf("database: %v", err)
+	}
+	defer db.Close()
+
+	tenants := postgres.NewTenantStore(db)
+	registers := postgres.NewCheckRegisterStore(db)
+	audits := postgres.NewAuditStore(db)
+	checks := checkpay.NewService(tenants, registers, registers, audits)
+
+	srv := api.NewServer(addr, &api.Handlers{
+		Checks: checks,
+		DB:     db,
+	})
 
 	go func() {
 		log.Printf("listening on %s", addr)
@@ -37,9 +49,9 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
+	if err := srv.Shutdown(shutdownCtx); err != nil {
 		log.Printf("shutdown: %v", err)
 	}
 }

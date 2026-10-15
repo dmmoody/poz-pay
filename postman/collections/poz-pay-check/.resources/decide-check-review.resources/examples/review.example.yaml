@@ -1,0 +1,34 @@
+$kind: "http-example"
+name: review
+order: 1000
+request:
+  url: '{{base_url}}/v1/decide'
+  method: POST
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "decision": "review",
+        "reason_code": "AMOUNT_MISMATCH",
+        "reason": "One or more check fields do not match register",
+        "exceptions": [
+          {
+            "code": "AMOUNT_MISMATCH",
+            "severity": "soft",
+            "detail": "presented=10050 issued=10000"
+          },
+          {
+            "code": "PAYEE_MISMATCH",
+            "severity": "soft",
+            "detail": "presented=ACME issued=ACME SUPPLIES LLC"
+          }
+        ],
+        "correlation_id": "postman-check-review",
+        "latency_ms": 2
+      }
