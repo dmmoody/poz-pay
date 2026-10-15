@@ -1,0 +1,15 @@
+.git
+.github
+.postman
+postman
+docs
+*.md
+.env
+.env.*
+bin
+dist
+coverage.*
+**/*_test.go
+.DS_Store
+.idea
+.vscode
