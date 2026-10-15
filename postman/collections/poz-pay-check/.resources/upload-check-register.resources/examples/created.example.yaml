@@ -1,0 +1,21 @@
+$kind: "http-example"
+name: created
+order: 1000
+request:
+  url: '{{base_url}}/v1/fis/:fi_id/parties/:party_id/check-registers'
+  method: POST
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "batch_id": "57bcb90c-d5bb-4d31-8f58-67a4b51e72c9",
+        "accepted": 1,
+        "rejected": 0,
+        "errors": []
+      }

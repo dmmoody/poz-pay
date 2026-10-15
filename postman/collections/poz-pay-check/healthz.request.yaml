@@ -1,0 +1,6 @@
+$kind: "http-request"
+name: healthz
+method: GET
+url: '{{base_url}}/healthz'
+order: 1000
+examples: './.resources/healthz.resources/examples'

@@ -1,0 +1,23 @@
+$kind: "http-example"
+name: pay
+order: 1000
+request:
+  url: '{{base_url}}/v1/decide'
+  method: POST
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "decision": "pay",
+        "reason_code": "OK",
+        "reason": "No exceptions; pay",
+        "exceptions": [],
+        "correlation_id": "postman-check-pay",
+        "latency_ms": 2
+      }

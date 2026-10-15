@@ -1,0 +1,29 @@
+$kind: "http-request"
+name: upload-check-register
+method: POST
+url: '{{base_url}}/v1/fis/:fi_id/parties/:party_id/check-registers'
+order: 5000
+headers:
+  - key: Content-Type
+    value: application/json
+pathVariables:
+  - key: fi_id
+    value: '{{fi_id}}'
+  - key: party_id
+    value: '{{party_id}}'
+body:
+  type: json
+  content: |-
+    {
+      "format": "json",
+      "items": [
+        {
+          "account_id": "{{account_id}}",
+          "check_number": "1002",
+          "amount": 5500,
+          "payee": "Office Depot",
+          "issue_date": "2026-10-10"
+        }
+      ]
+    }
+examples: './.resources/upload-check-register.resources/examples'
