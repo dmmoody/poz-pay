@@ -1,0 +1,58 @@
+services:
+  postgres:
+    image: postgres:18.6
+    container_name: pozpay-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-pozpay}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pozpay}
+      POSTGRES_DB: ${POSTGRES_DB:-pozpay}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      # PG 18+: mount parent dir (versioned data lives under PGDATA subdirectory)
+      - pozpay_pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pozpay} -d ${POSTGRES_DB:-pozpay}"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  migrate:
+    image: migrate/migrate:v4.18.3
+    container_name: pozpay-migrate
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./migrations:/migrations:ro
+    entrypoint:
+      - migrate
+      - -path=/migrations
+      - -database
+      - postgres://${POSTGRES_USER:-pozpay}:${POSTGRES_PASSWORD:-pozpay}@postgres:5432/${POSTGRES_DB:-pozpay}?sslmode=disable
+    profiles:
+      - tools
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pozpay-api
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-pozpay}:${POSTGRES_PASSWORD:-pozpay}@postgres:5432/${POSTGRES_DB:-pozpay}?sslmode=disable
+      API_ADDR: ${API_ADDR:-:8080}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  pozpay_pgdata:
