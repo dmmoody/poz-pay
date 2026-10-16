@@ -39,7 +39,21 @@ See [decision-order.md](decision-order.md) check pipeline and [exceptions.md](ex
 | Payee differs | payee | `PAYEE_MISMATCH` soft |
 | All match | — | `pay` |
 
-Default for any soft mismatch: `decision=review`. Optional future FI setting `return_on_check_mismatch` may force `return`.
+Default for soft mismatch: `decision=review`. Party/FI **`return_on_mismatch`** (see `party_check_settings` / `fi_check_settings`) forces `return` instead — useful for wash demos (Acme party seed is `true`).
+
+### Paid presentment
+
+On a successful **`pay`** decide, the engine sets `check_register_items.paid_at`. A second presentment of the same check number returns hard **`CHECK_ALREADY_PAID`**.
+
+## Demo seed (Acme operating)
+
+| Check # | Scenario |
+|---------|----------|
+| `1001` | Match → pay; wrong payee/amount → return (party `return_on_mismatch`) |
+| `1003` | Voided → `CHECK_VOIDED` |
+| `1004` | Already paid → `CHECK_ALREADY_PAID` |
+| `1005` | Unpaid; pay once, then already-paid on replay |
+| account `99999999-…` | Inactive → `ACCOUNT_INACTIVE` |
 
 ## Upload API
 

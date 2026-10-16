@@ -17,8 +17,8 @@ Pipelines for the hot path. Order is contractual for the spike.
    - payee → PAYEE_MISMATCH
    - issue date (if present + tolerance configured) → ISSUE_DATE_MISMATCH
 4. Decide
-   - any soft → review (spike default) unless FI/party check policy says return_on_mismatch
-   - none → pay
+   - any soft → `review`, or `return` when party/FI `return_on_mismatch` is true
+   - none → `pay`, then set register `paid_at` (replay → `CHECK_ALREADY_PAID`)
 ```
 
 Hard stops do **not** continue soft matching.

@@ -35,13 +35,19 @@ type PresentedCheck struct {
 	IssueDate   *time.Time // optional
 }
 
+// Policy controls soft-mismatch outcomes (FI/party check settings).
+type Policy struct {
+	// ReturnOnMismatch maps soft field mismatches to decision return (wash theater / strict).
+	ReturnOnMismatch bool
+}
+
 // EvaluateCheck runs the contractual check pipeline against an already-resolved
 // account and optional register item (nil = not found / not active).
 //
 // Voided/paid items should be passed in when found including voided rows so
 // hard CHECK_VOIDED / CHECK_ALREADY_PAID can fire; callers that only query
 // active rows pass nil for missing → CHECK_NOT_IN_REGISTER.
-func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck) decide.Result {
+func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, policy Policy) decide.Result {
 	if acct == nil || acct.FIID == "" || acct.ID == "" {
 		return decide.Hard(decide.CodeAccountNotOurs, "account not found")
 	}
@@ -97,8 +103,11 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck) 
 		return decide.NewResult(decide.DecisionPay, decide.ReasonOK, nil)
 	}
 
-	// Spike default: any soft mismatch → review; primary reason = first soft code.
-	return decide.NewResult(decide.DecisionReview, excs[0].Code, excs)
+	decision := decide.DecisionReview
+	if policy.ReturnOnMismatch {
+		decision = decide.DecisionReturn
+	}
+	return decide.NewResult(decision, excs[0].Code, excs)
 }
 
 func truncateDateUTC(t time.Time) time.Time {

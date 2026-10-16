@@ -1,8 +1,8 @@
 $kind: "http-request"
-name: decide-check-review
+name: decide-check-already-paid
 method: POST
 url: '{{base_url}}/v1/decide'
-order: 3000
+order: 4600
 headers:
   - key: Content-Type
     value: application/json
@@ -13,11 +13,11 @@ body:
       "rail": "check",
       "fi_id": "{{fi_id}}",
       "account_id": "{{account_id}}",
-      "correlation_id": "postman-check-review",
+      "correlation_id": "postman-check-already-paid",
       "check": {
-        "check_number": "1001",
-        "amount": 10050,
-        "payee": "ACME"
+        "check_number": "1004",
+        "amount": 7500,
+        "payee": "OFFICE DEPOT"
       }
     }
-examples: './.resources/decide-check-review.resources/examples'
+examples: './.resources/decide-check-already-paid.resources/examples'

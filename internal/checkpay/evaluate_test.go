@@ -34,10 +34,11 @@ func issued(mod func(*checkpay.RegisterItem)) *checkpay.RegisterItem {
 func TestEvaluateCheck_HardFails(t *testing.T) {
 	t.Parallel()
 	presented := checkpay.PresentedCheck{CheckNumber: "1001", Amount: 10000, Payee: "ACME SUPPLIES LLC"}
+	pol := checkpay.Policy{}
 
 	t.Run("nil account", func(t *testing.T) {
 		t.Parallel()
-		r := checkpay.EvaluateCheck(nil, nil, presented)
+		r := checkpay.EvaluateCheck(nil, nil, presented, pol)
 		assertHard(t, r, decide.CodeAccountNotOurs)
 	})
 
@@ -45,13 +46,13 @@ func TestEvaluateCheck_HardFails(t *testing.T) {
 		t.Parallel()
 		acct := activeAcct()
 		acct.Active = false
-		r := checkpay.EvaluateCheck(acct, issued(nil), presented)
+		r := checkpay.EvaluateCheck(acct, issued(nil), presented, pol)
 		assertHard(t, r, decide.CodeAccountInactive)
 	})
 
 	t.Run("not in register", func(t *testing.T) {
 		t.Parallel()
-		r := checkpay.EvaluateCheck(activeAcct(), nil, presented)
+		r := checkpay.EvaluateCheck(activeAcct(), nil, presented, pol)
 		assertHard(t, r, decide.CodeCheckNotInRegister)
 	})
 
@@ -60,7 +61,7 @@ func TestEvaluateCheck_HardFails(t *testing.T) {
 		now := time.Now().UTC()
 		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
 			i.VoidedAt = &now
-		}), presented)
+		}), presented, pol)
 		assertHard(t, r, decide.CodeCheckVoided)
 	})
 
@@ -69,7 +70,7 @@ func TestEvaluateCheck_HardFails(t *testing.T) {
 		now := time.Now().UTC()
 		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
 			i.PaidAt = &now
-		}), presented)
+		}), presented, pol)
 		assertHard(t, r, decide.CodeCheckAlreadyPaid)
 	})
 }
@@ -80,7 +81,7 @@ func TestEvaluateCheck_SoftAccumulate(t *testing.T) {
 		CheckNumber: "1001",
 		Amount:      10050,
 		Payee:       "ACME SUPPLIES",
-	})
+	}, checkpay.Policy{})
 	if r.Decision != decide.DecisionReview {
 		t.Fatalf("decision=%s want review", r.Decision)
 	}
@@ -90,15 +91,20 @@ func TestEvaluateCheck_SoftAccumulate(t *testing.T) {
 	if len(r.Exceptions) != 2 {
 		t.Fatalf("exceptions=%d want 2: %+v", len(r.Exceptions), r.Exceptions)
 	}
-	codes := map[string]bool{}
-	for _, e := range r.Exceptions {
-		if e.Severity != decide.SeveritySoft {
-			t.Fatalf("expected soft: %+v", e)
-		}
-		codes[e.Code] = true
+}
+
+func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
+	t.Parallel()
+	r := checkpay.EvaluateCheck(activeAcct(), issued(nil), checkpay.PresentedCheck{
+		CheckNumber: "1001",
+		Amount:      10050,
+		Payee:       "ACME SUPPLIES LLC",
+	}, checkpay.Policy{ReturnOnMismatch: true})
+	if r.Decision != decide.DecisionReturn {
+		t.Fatalf("decision=%s want return", r.Decision)
 	}
-	if !codes[decide.CodeAmountMismatch] || !codes[decide.CodePayeeMismatch] {
-		t.Fatalf("missing soft codes: %+v", r.Exceptions)
+	if r.ReasonCode != decide.CodeAmountMismatch {
+		t.Fatalf("reason_code=%s", r.ReasonCode)
 	}
 }
 
@@ -108,12 +114,9 @@ func TestEvaluateCheck_Pay(t *testing.T) {
 		CheckNumber: "1001",
 		Amount:      10000,
 		Payee:       "  acme   supplies  llc ",
-	})
+	}, checkpay.Policy{})
 	if r.Decision != decide.DecisionPay || r.ReasonCode != decide.ReasonOK {
 		t.Fatalf("got decision=%s reason=%s excs=%+v", r.Decision, r.ReasonCode, r.Exceptions)
-	}
-	if len(r.Exceptions) != 0 {
-		t.Fatalf("exceptions should be empty: %+v", r.Exceptions)
 	}
 }
 

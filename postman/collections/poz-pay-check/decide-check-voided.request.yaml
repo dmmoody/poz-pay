@@ -1,0 +1,23 @@
+$kind: "http-request"
+name: decide-check-voided
+method: POST
+url: '{{base_url}}/v1/decide'
+order: 4500
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "rail": "check",
+      "fi_id": "{{fi_id}}",
+      "account_id": "{{account_id}}",
+      "correlation_id": "postman-check-voided",
+      "check": {
+        "check_number": "1003",
+        "amount": 25000,
+        "payee": "VOIDED PAYEE INC"
+      }
+    }
+examples: './.resources/decide-check-voided.resources/examples'

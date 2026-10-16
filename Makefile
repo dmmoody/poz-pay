@@ -3,22 +3,24 @@ MIGRATE_SERVICE ?= migrate
 POSTGRES_SERVICE ?= postgres
 API_SERVICE ?= api
 
-.PHONY: help up down logs ps psql migrate migrate-down migrate-version build run test fmt seed tidy docker-build docker-up docker-down
+.PHONY: help up down destroy logs ps psql db-up migrate migrate-down migrate-version build run test fmt seed tidy docker-build
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
 
-up: ## Start Postgres (detached)
-	$(COMPOSE) up -d $(POSTGRES_SERVICE)
+up: ## Build/start full stack, migrate, and seed
+	$(COMPOSE) up -d --build $(POSTGRES_SERVICE) $(API_SERVICE)
+	@$(MAKE) migrate
+	@$(MAKE) seed
 
-down: ## Stop and remove compose services (keep volume)
+down: ## Stop and remove stack (keep DB volume)
 	$(COMPOSE) down
 
-docker-up: ## Build and start Postgres + API
-	$(COMPOSE) up -d --build $(POSTGRES_SERVICE) $(API_SERVICE)
-
-docker-down: ## Stop stack and remove volumes
+destroy: ## Stop stack and delete DB volume
 	$(COMPOSE) down -v
+
+db-up: ## Start Postgres only (for migrate / make run)
+	$(COMPOSE) up -d $(POSTGRES_SERVICE)
 
 docker-build: ## Build API image
 	$(COMPOSE) build $(API_SERVICE)
@@ -32,7 +34,7 @@ ps: ## Compose process status
 psql: ## Open psql in Postgres container
 	$(COMPOSE) exec $(POSTGRES_SERVICE) psql -U $${POSTGRES_USER:-pozpay} -d $${POSTGRES_DB:-pozpay}
 
-migrate: up ## Apply all migrations
+migrate: db-up ## Apply all migrations
 	$(COMPOSE) --profile tools run --rm $(MIGRATE_SERVICE) up
 
 migrate-down: ## Roll back one migration

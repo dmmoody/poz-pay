@@ -30,8 +30,9 @@ func main() {
 
 	tenants := postgres.NewTenantStore(db)
 	registers := postgres.NewCheckRegisterStore(db)
+	checkSettings := postgres.NewCheckSettingsStore(db)
 	audits := postgres.NewAuditStore(db)
-	checks := checkpay.NewService(tenants, registers, registers, audits)
+	checks := checkpay.NewService(tenants, registers, registers, checkSettings, audits)
 
 	srv := api.NewServer(addr, &api.Handlers{
 		Checks: checks,

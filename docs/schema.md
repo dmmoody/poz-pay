@@ -12,6 +12,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 | 4 | check_register | batches + items (partial unique on active check #) |
 | 5 | ach_config | FI/party settings, rule_sets/rules, whitelist |
 | 6 | decision_audit | reason codes, `decision_audit`, `approvals` |
+| 7 | check_settings | `fi_check_settings` / `party_check_settings` (`return_on_mismatch`) |
 
 ## Integrity patterns
 

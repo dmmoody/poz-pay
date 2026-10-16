@@ -133,3 +133,25 @@ func (s *CheckRegisterStore) InsertBatch(
 	}
 	return out, nil
 }
+
+// MarkPaid sets paid_at on the active (non-void) register item if still unpaid.
+// Returns true when this call marked the row; false if already paid, voided, or missing.
+func (s *CheckRegisterStore) MarkPaid(ctx context.Context, fiID, accountID, checkNumber string) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE check_register_items
+		SET paid_at = now()
+		WHERE fi_id = $1::uuid
+		  AND account_id = $2::uuid
+		  AND check_number = $3
+		  AND voided_at IS NULL
+		  AND paid_at IS NULL
+	`, fiID, accountID, checkNumber)
+	if err != nil {
+		return false, fmt.Errorf("mark paid: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("mark paid rows: %w", err)
+	}
+	return n > 0, nil
+}

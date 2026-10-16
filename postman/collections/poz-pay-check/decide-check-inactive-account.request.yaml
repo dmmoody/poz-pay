@@ -1,0 +1,22 @@
+$kind: "http-request"
+name: decide-check-inactive-account
+method: POST
+url: '{{base_url}}/v1/decide'
+order: 4900
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "rail": "check",
+      "fi_id": "{{fi_id}}",
+      "account_id": "99999999-9999-9999-9999-999999999999",
+      "correlation_id": "postman-check-inactive",
+      "check": {
+        "check_number": "1001",
+        "amount": 10000,
+        "payee": "ACME SUPPLIES LLC"
+      }
+    }

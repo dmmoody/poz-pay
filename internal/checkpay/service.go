@@ -21,9 +21,15 @@ type RegisterReader interface {
 	FindItem(ctx context.Context, fiID, accountID, checkNumber string) (*RegisterItem, error)
 }
 
-// RegisterWriter persists upload batches.
+// RegisterWriter persists upload batches and paid marks.
 type RegisterWriter interface {
 	InsertBatch(ctx context.Context, fiID, partyID string, items []UploadItem, payeeNorm func(string) string) (UploadBatchResult, error)
+	MarkPaid(ctx context.Context, fiID, accountID, checkNumber string) (bool, error)
+}
+
+// PolicyResolver loads check decide policy for an FI/party.
+type PolicyResolver interface {
+	ResolvePolicy(ctx context.Context, fiID, partyID string) (Policy, error)
 }
 
 // DecisionAuditor appends audit rows.
@@ -60,14 +66,22 @@ type Service struct {
 	accounts AccountReader
 	register RegisterReader
 	writer   RegisterWriter
+	policy   PolicyResolver
 	audit    DecisionAuditor
 }
 
-func NewService(accounts AccountReader, register RegisterReader, writer RegisterWriter, audit DecisionAuditor) *Service {
+func NewService(
+	accounts AccountReader,
+	register RegisterReader,
+	writer RegisterWriter,
+	policy PolicyResolver,
+	audit DecisionAuditor,
+) *Service {
 	return &Service{
 		accounts: accounts,
 		register: register,
 		writer:   writer,
+		policy:   policy,
 		audit:    audit,
 	}
 }
@@ -87,7 +101,7 @@ var ErrFINotFound = fmt.Errorf("financial institution not found")
 // ErrPartyNotFound is returned when party is unknown under FI.
 var ErrPartyNotFound = fmt.Errorf("party not found")
 
-// Decide evaluates a presented check and audits the outcome.
+// Decide evaluates a presented check, marks paid on pay, and audits the outcome.
 func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, error) {
 	start := time.Now()
 
@@ -112,7 +126,31 @@ func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, er
 		}
 	}
 
-	result := EvaluateCheck(acct, item, in.Check)
+	pol := Policy{}
+	if acct != nil && s.policy != nil {
+		pol, err = s.policy.ResolvePolicy(ctx, in.FIID, acct.PartyID)
+		if err != nil {
+			return decide.Result{}, err
+		}
+	}
+
+	result := EvaluateCheck(acct, item, in.Check, pol)
+
+	// Successful pay marks the register item so a second presentment is CHECK_ALREADY_PAID.
+	if result.Decision == decide.DecisionPay && acct != nil {
+		marked, err := s.writer.MarkPaid(ctx, in.FIID, in.AccountID, in.Check.CheckNumber)
+		if err != nil {
+			return decide.Result{}, fmt.Errorf("mark paid: %w", err)
+		}
+		if !marked {
+			item, err = s.register.FindItem(ctx, in.FIID, in.AccountID, in.Check.CheckNumber)
+			if err != nil {
+				return decide.Result{}, err
+			}
+			result = EvaluateCheck(acct, item, in.Check, pol)
+		}
+	}
+
 	result.CorrelationID = in.CorrelationID
 	result.LatencyMs = time.Since(start).Milliseconds()
 
