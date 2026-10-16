@@ -62,17 +62,14 @@ ACH example:
 
 #### Response `200`
 
-`decision`, `reason_code`, `exceptions[].code`, and `exceptions[].severity` are **closed codes** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch on those fields only.
+`decision` and `exceptions[].code` are **closed codes** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch on those fields only. There is no primary `reason_code` or `severity` — use `exceptions[]` for why.
 
 ```json
 {
   "decision": "return",
-  "reason_code": "CHECK_NOT_IN_REGISTER",
-  "reason": "Check number not found in register",
   "exceptions": [
     {
       "code": "CHECK_NOT_IN_REGISTER",
-      "severity": "hard",
       "detail": "check_number=1001"
     }
   ],
@@ -81,16 +78,14 @@ ACH example:
 }
 ```
 
-Multi-fail soft example:
+Multi-mismatch example:
 
 ```json
 {
-  "decision": "review",
-  "reason_code": "AMOUNT_MISMATCH",
-  "reason": "One or more check fields do not match register",
+  "decision": "return",
   "exceptions": [
-    {"code": "AMOUNT_MISMATCH", "severity": "soft", "detail": "presented=10050 issued=10000"},
-    {"code": "PAYEE_MISMATCH", "severity": "soft", "detail": "presented=ACME issued=ACME SUPPLIES LLC"}
+    {"code": "AMOUNT_MISMATCH", "detail": "presented=10050 issued=10000"},
+    {"code": "PAYEE_MISMATCH", "detail": "presented=ACME issued=ACME SUPPLIES LLC"}
   ],
   "correlation_id": "core-txn-abc",
   "latency_ms": 3

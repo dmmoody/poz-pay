@@ -1,0 +1,26 @@
+$kind: "http-example"
+name: expired
+order: 1000
+request:
+  url: '{{base_url}}/v1/decide'
+  method: POST
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "decision": "return",
+        "exceptions": [
+          {
+            "code": "CHECK_EXPIRED",
+            "detail": "check_number=1006 issue_date=2025-01-01 age_days=288 max_age_days=180"
+          }
+        ],
+        "correlation_id": "postman-check-expired",
+        "latency_ms": 1
+      }

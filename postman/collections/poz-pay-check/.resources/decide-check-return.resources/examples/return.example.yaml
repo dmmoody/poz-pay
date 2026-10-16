@@ -15,12 +15,9 @@ response:
     content: |-
       {
         "decision": "return",
-        "reason_code": "CHECK_NOT_IN_REGISTER",
-        "reason": "Check number not found in register",
         "exceptions": [
           {
             "code": "CHECK_NOT_IN_REGISTER",
-            "severity": "hard",
             "detail": "check_number=9999"
           }
         ],

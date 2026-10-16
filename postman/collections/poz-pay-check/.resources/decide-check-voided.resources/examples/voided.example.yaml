@@ -15,12 +15,9 @@ response:
     content: |-
       {
         "decision": "return",
-        "reason_code": "CHECK_VOIDED",
-        "reason": "Check voided in register",
         "exceptions": [
           {
             "code": "CHECK_VOIDED",
-            "severity": "hard",
             "detail": "check_number=1003"
           }
         ],

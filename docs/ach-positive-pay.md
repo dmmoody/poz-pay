@@ -27,7 +27,7 @@ Active entry is a **full match** only when all present constraints pass:
 - `account_id` null (all party accounts) or equal to presented account
 - `effective_from` / `effective_to` contain decide time
 
-Partial originator hit with failed constraints → soft exceptions; no auto-pay.
+Partial originator hit with failed constraints → accumulate exceptions; no auto-pay.
 
 Statuses: `active` (used on decide), `proposed` (learning), `rejected`.
 

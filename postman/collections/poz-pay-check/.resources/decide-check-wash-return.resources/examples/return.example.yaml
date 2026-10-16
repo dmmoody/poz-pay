@@ -15,17 +15,13 @@ response:
     content: |-
       {
         "decision": "return",
-        "reason_code": "AMOUNT_MISMATCH",
-        "reason": "One or more check fields do not match register",
         "exceptions": [
           {
             "code": "AMOUNT_MISMATCH",
-            "severity": "soft",
             "detail": "presented=10050 issued=10000"
           },
           {
             "code": "PAYEE_MISMATCH",
-            "severity": "soft",
             "detail": "presented=FRAUDSTER LLC issued=ACME SUPPLIES LLC"
           }
         ],

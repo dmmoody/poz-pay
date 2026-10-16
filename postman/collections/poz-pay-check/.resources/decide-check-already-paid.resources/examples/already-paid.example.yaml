@@ -15,12 +15,9 @@ response:
     content: |-
       {
         "decision": "return",
-        "reason_code": "CHECK_ALREADY_PAID",
-        "reason": "Check already paid/presented",
         "exceptions": [
           {
             "code": "CHECK_ALREADY_PAID",
-            "severity": "hard",
             "detail": "check_number=1004"
           }
         ],

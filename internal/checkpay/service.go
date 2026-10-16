@@ -134,7 +134,8 @@ func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, er
 		}
 	}
 
-	result := EvaluateCheck(acct, item, in.Check, pol)
+	asOf := time.Now().UTC()
+	result := EvaluateCheck(acct, item, in.Check, pol, asOf)
 
 	// Successful pay marks the register item so a second presentment is CHECK_ALREADY_PAID.
 	if result.Decision == decide.DecisionPay && acct != nil {
@@ -147,7 +148,7 @@ func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, er
 			if err != nil {
 				return decide.Result{}, err
 			}
-			result = EvaluateCheck(acct, item, in.Check, pol)
+			result = EvaluateCheck(acct, item, in.Check, pol, asOf)
 		}
 	}
 

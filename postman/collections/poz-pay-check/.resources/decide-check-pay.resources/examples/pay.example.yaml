@@ -15,8 +15,6 @@ response:
     content: |-
       {
         "decision": "pay",
-        "reason_code": "OK",
-        "reason": "No exceptions; pay",
         "exceptions": [],
         "correlation_id": "postman-check-pay",
         "latency_ms": 2

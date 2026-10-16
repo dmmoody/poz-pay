@@ -41,15 +41,16 @@ VALUES
 ON CONFLICT (party_id) DO NOTHING;
 
 -- Acme: wash/mismatch → return (strict demo). FI default remains review when no party row.
-INSERT INTO fi_check_settings (fi_id, return_on_mismatch)
+-- max_age_days defaults to 180 (≈ UCC 6 months); override per FI/party as needed (e.g. 60, 90).
+INSERT INTO fi_check_settings (fi_id, return_on_mismatch, max_age_days)
 VALUES
-    ('11111111-1111-1111-1111-111111111111', false),
-    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false)
+    ('11111111-1111-1111-1111-111111111111', false, 180),
+    ('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa', false, 180)
 ON CONFLICT (fi_id) DO NOTHING;
 
-INSERT INTO party_check_settings (party_id, fi_id, return_on_mismatch)
+INSERT INTO party_check_settings (party_id, fi_id, return_on_mismatch, max_age_days)
 VALUES
-    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '11111111-1111-1111-1111-111111111111', true)
+    ('bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb', '11111111-1111-1111-1111-111111111111', true, 180)
 ON CONFLICT (party_id) DO NOTHING;
 
 INSERT INTO rule_sets (id, fi_id, party_id, tier, name, enabled)
@@ -89,7 +90,7 @@ VALUES
     ('33333333-3333-3333-3333-333333333333',
      '11111111-1111-1111-1111-111111111111',
      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-     4, 'seed')
+     5, 'seed')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO check_register_items (
@@ -126,7 +127,14 @@ VALUES
      '11111111-1111-1111-1111-111111111111',
      'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
      '22222222-2222-2222-2222-222222222222',
-     '1005', 12000, 'STAPLES INC', 'STAPLES INC', DATE '2026-10-05', NULL, NULL)
+     '1005', 12000, 'STAPLES INC', 'STAPLES INC', DATE '2026-10-05', NULL, NULL),
+    -- Stale dated → CHECK_EXPIRED under default max_age_days=180
+    ('1b1b1b1b-1b1b-1b1b-1b1b-1b1b1b1b1b1b',
+     '33333333-3333-3333-3333-333333333333',
+     '11111111-1111-1111-1111-111111111111',
+     'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+     '22222222-2222-2222-2222-222222222222',
+     '1006', 5000, 'OLD VENDOR LLC', 'OLD VENDOR LLC', DATE '2025-01-01', NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 COMMIT;
