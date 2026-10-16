@@ -89,6 +89,9 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 		asOf := issue.AddDate(0, 0, 181)
 		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{}, asOf)
 		assertGate(t, r, decide.CodeCheckExpired)
+		if r.Exceptions[0].Facts["age_days"] != 181 || r.Exceptions[0].Facts["max_age_days"] != 180 {
+			t.Fatalf("facts=%+v", r.Exceptions[0].Facts)
+		}
 	})
 
 	t.Run("default 180 on boundary still pay", func(t *testing.T) {
@@ -153,6 +156,10 @@ func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
 	}
 	if len(r.Exceptions) != 1 || r.Exceptions[0].Code != decide.CodeAmountMismatch {
 		t.Fatalf("exceptions=%+v", r.Exceptions)
+	}
+	f := r.Exceptions[0].Facts
+	if f["presented_amount"] != int64(10050) || f["issued_amount"] != int64(10000) {
+		t.Fatalf("facts=%+v", f)
 	}
 }
 

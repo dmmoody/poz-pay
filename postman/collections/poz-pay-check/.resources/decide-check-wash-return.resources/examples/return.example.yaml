@@ -18,11 +18,17 @@ response:
         "exceptions": [
           {
             "code": "AMOUNT_MISMATCH",
-            "detail": "presented=10050 issued=10000"
+            "facts": {
+              "presented_amount": 10050,
+              "issued_amount": 10000
+            }
           },
           {
             "code": "PAYEE_MISMATCH",
-            "detail": "presented=FRAUDSTER LLC issued=ACME SUPPLIES LLC"
+            "facts": {
+              "presented_payee": "FRAUDSTER LLC",
+              "issued_payee": "ACME SUPPLIES LLC"
+            }
           }
         ],
         "correlation_id": "postman-check-wash",

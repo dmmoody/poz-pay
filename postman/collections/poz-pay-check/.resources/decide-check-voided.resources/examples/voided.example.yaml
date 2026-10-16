@@ -18,7 +18,9 @@ response:
         "exceptions": [
           {
             "code": "CHECK_VOIDED",
-            "detail": "check_number=1003"
+            "facts": {
+              "check_number": "1003"
+            }
           }
         ],
         "correlation_id": "postman-check-voided",

@@ -1,7 +1,6 @@
 package checkpay
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/decide"
@@ -68,41 +67,49 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 	}
 
 	if acct == nil || acct.FIID == "" || acct.ID == "" {
-		return decide.Hard(decide.CodeAccountNotOurs, "account not found")
+		return decide.Hard(decide.CodeAccountNotOurs, nil)
 	}
 	if !acct.Active || !acct.PositivePayEnabled {
-		return decide.Hard(decide.CodeAccountInactive, "account inactive or positive pay disabled")
+		return decide.Hard(decide.CodeAccountInactive, nil)
 	}
 
 	if item == nil {
-		return decide.Hard(decide.CodeCheckNotInRegister, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckNotInRegister, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
 	}
 	if item.VoidedAt != nil {
-		return decide.Hard(decide.CodeCheckVoided, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckVoided, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
 	}
 	if item.PaidAt != nil {
-		return decide.Hard(decide.CodeCheckAlreadyPaid, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckAlreadyPaid, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
 	}
 
 	if item.IssueDate != nil {
 		maxAge := policy.effectiveMaxAgeDays()
 		age := calendarDaysBetween(*item.IssueDate, asOf)
 		if age > maxAge {
-			return decide.Hard(decide.CodeCheckExpired, fmt.Sprintf(
-				"check_number=%s issue_date=%s age_days=%d max_age_days=%d",
-				presented.CheckNumber,
-				truncateDateUTC(*item.IssueDate).Format("2006-01-02"),
-				age,
-				maxAge,
-			))
+			return decide.Hard(decide.CodeCheckExpired, decide.Facts{
+				"check_number": presented.CheckNumber,
+				"issue_date":   truncateDateUTC(*item.IssueDate).Format("2006-01-02"),
+				"age_days":     age,
+				"max_age_days": maxAge,
+			})
 		}
 	}
 
 	var excs []decide.Exception
 	if presented.Amount != item.Amount {
 		excs = append(excs, decide.Exception{
-			Code:   decide.CodeAmountMismatch,
-			Detail: fmt.Sprintf("presented=%d issued=%d", presented.Amount, item.Amount),
+			Code: decide.CodeAmountMismatch,
+			Facts: decide.Facts{
+				"presented_amount": presented.Amount,
+				"issued_amount":    item.Amount,
+			},
 		})
 	}
 
@@ -113,8 +120,11 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 	}
 	if presentedPayee != issuedPayee {
 		excs = append(excs, decide.Exception{
-			Code:   decide.CodePayeeMismatch,
-			Detail: fmt.Sprintf("presented=%s issued=%s", presentedPayee, issuedPayee),
+			Code: decide.CodePayeeMismatch,
+			Facts: decide.Facts{
+				"presented_payee": presentedPayee,
+				"issued_payee":    issuedPayee,
+			},
 		})
 	}
 
@@ -123,8 +133,11 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 		i := truncateDateUTC(*item.IssueDate)
 		if !p.Equal(i) {
 			excs = append(excs, decide.Exception{
-				Code:   decide.CodeIssueDateMismatch,
-				Detail: fmt.Sprintf("presented=%s issued=%s", p.Format("2006-01-02"), i.Format("2006-01-02")),
+				Code: decide.CodeIssueDateMismatch,
+				Facts: decide.Facts{
+					"presented_issue_date": p.Format("2006-01-02"),
+					"issued_issue_date":    i.Format("2006-01-02"),
+				},
 			})
 		}
 	}

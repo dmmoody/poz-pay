@@ -24,8 +24,8 @@ Spike contracts and domain specs. Implement against these; change the docs when 
 
 Decision-engine results use **stable opaque codes** from DB lookup tables (`decision_codes`, `exception_codes`, `approve_modes`, …). See [exceptions.md](exceptions.md#closed-vocabulary-contract).
 
-- Clients and cores **MUST** branch only on `decision` and `exceptions[].code`.
+- Clients and cores **MUST** branch only on `decision`, `exceptions[].code`, and documented `exceptions[].facts` keys.
 - Empty `exceptions` with `decision=pay` means clean allow.
-- `exceptions[].detail` is **display/debug only** — never for control flow.
+- Do **not** invent freeform prose fields for machine parsing.
 - Servers **MUST NOT** invent ad-hoc codes; new codes require a lookup migration.
 - Go (and any client) should use typed constants / generated enums matching those tables — not free-form string compares on prose.

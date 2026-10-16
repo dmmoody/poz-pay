@@ -1,9 +1,13 @@
 package decide
 
-// Exception is one structured decide finding. Code is normative.
+// Facts are closed, code-specific machine fields on an exception.
+// Keys and value types are normative per exception code (see docs/exceptions.md).
+type Facts map[string]any
+
+// Exception is one structured decide finding. Code and Facts are normative.
 type Exception struct {
-	Code   string `json:"code"`
-	Detail string `json:"detail,omitempty"`
+	Code  string `json:"code"`
+	Facts Facts  `json:"facts,omitempty"`
 }
 
 // Result is the hot-path decide response body.
@@ -27,9 +31,9 @@ func NewResult(decision string, excs []Exception) Result {
 }
 
 // Hard returns a first-fail gate result (decision return, single exception).
-func Hard(code, detail string) Result {
+func Hard(code string, facts Facts) Result {
 	return NewResult(DecisionReturn, []Exception{{
-		Code:   code,
-		Detail: detail,
+		Code:  code,
+		Facts: facts,
 	}})
 }

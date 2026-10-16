@@ -18,7 +18,12 @@ response:
         "exceptions": [
           {
             "code": "CHECK_EXPIRED",
-            "detail": "check_number=1006 issue_date=2025-01-01 age_days=288 max_age_days=180"
+            "facts": {
+              "check_number": "1006",
+              "issue_date": "2025-01-01",
+              "age_days": 288,
+              "max_age_days": 180
+            }
           }
         ],
         "correlation_id": "postman-check-expired",

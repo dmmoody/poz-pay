@@ -22,7 +22,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 - Composite `(id, fi_id)` unique on parties/accounts so children can FK both columns and cannot cross FIs.
 - Money: `bigint` minor units.
 - Lookups + FKs for all stable codes (no free-form decision/exception enums).
-- API `decision` + exception codes are that closed vocabulary; `exceptions[].detail` is not control-plane.
+- API `decision` + exception codes + per-code `facts` keys are that closed vocabulary.
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
 - `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents.
