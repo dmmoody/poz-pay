@@ -20,6 +20,7 @@ func activeAcct() *checkpay.Account {
 
 func issued(mod func(*checkpay.RegisterItem)) *checkpay.RegisterItem {
 	item := &checkpay.RegisterItem{
+		ID:              "reg-1001",
 		CheckNumber:     "1001",
 		Amount:          10000,
 		Payee:           "ACME SUPPLIES LLC",
@@ -98,9 +99,7 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 180)
 		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{}, asOf)
-		if r.Decision != decide.DecisionPay {
-			t.Fatalf("decision=%s excs=%+v want pay", r.Decision, r.Exceptions)
-		}
+		assertRegisterMatch(t, r, "reg-1001")
 	})
 
 	t.Run("fi 60 days", func(t *testing.T) {
@@ -114,9 +113,7 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 		t.Parallel()
 		asOf := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
 		r := checkpay.EvaluateCheck(activeAcct(), issued(nil), presented, checkpay.Policy{MaxAgeDays: 1}, asOf)
-		if r.Decision != decide.DecisionPay {
-			t.Fatalf("decision=%s excs=%+v want pay", r.Decision, r.Exceptions)
-		}
+		assertRegisterMatch(t, r, "reg-1001")
 	})
 }
 
@@ -141,6 +138,7 @@ func TestEvaluateCheck_MismatchAccumulate(t *testing.T) {
 	if !codes[decide.CodeAmountMismatch] || !codes[decide.CodePayeeMismatch] {
 		t.Fatalf("missing mismatch codes: %+v", r.Exceptions)
 	}
+	assertNoMatch(t, r)
 }
 
 func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
@@ -161,6 +159,7 @@ func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
 	if f["presented_amount"] != int64(10050) || f["issued_amount"] != int64(10000) {
 		t.Fatalf("facts=%+v", f)
 	}
+	assertNoMatch(t, r)
 }
 
 func TestEvaluateCheck_Pay(t *testing.T) {
@@ -171,12 +170,7 @@ func TestEvaluateCheck_Pay(t *testing.T) {
 		Amount:      10000,
 		Payee:       "  acme   supplies  llc ",
 	}, checkpay.Policy{}, asOf)
-	if r.Decision != decide.DecisionPay {
-		t.Fatalf("got decision=%s excs=%+v", r.Decision, r.Exceptions)
-	}
-	if len(r.Exceptions) != 0 {
-		t.Fatalf("exceptions should be empty: %+v", r.Exceptions)
-	}
+	assertRegisterMatch(t, r, "reg-1001")
 }
 
 func TestNormalizePayee(t *testing.T) {
@@ -194,5 +188,29 @@ func assertGate(t *testing.T, r decide.Result, code string) {
 	}
 	if len(r.Exceptions) != 1 || r.Exceptions[0].Code != code {
 		t.Fatalf("exceptions=%+v want %s", r.Exceptions, code)
+	}
+	assertNoMatch(t, r)
+}
+
+func assertRegisterMatch(t *testing.T, r decide.Result, registerItemID string) {
+	t.Helper()
+	if r.Decision != decide.DecisionPay {
+		t.Fatalf("decision=%s excs=%+v want pay", r.Decision, r.Exceptions)
+	}
+	if len(r.Exceptions) != 0 {
+		t.Fatalf("exceptions should be empty: %+v", r.Exceptions)
+	}
+	if r.Match == nil || r.Match.Code != decide.CodeRegisterMatch {
+		t.Fatalf("match=%+v want %s", r.Match, decide.CodeRegisterMatch)
+	}
+	if r.Match.Facts["register_item_id"] != registerItemID {
+		t.Fatalf("facts=%+v", r.Match.Facts)
+	}
+}
+
+func assertNoMatch(t *testing.T, r decide.Result) {
+	t.Helper()
+	if r.Match != nil {
+		t.Fatalf("match=%+v want none", r.Match)
 	}
 }

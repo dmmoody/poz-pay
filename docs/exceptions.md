@@ -7,6 +7,8 @@ Codes are a **closed set**, owned by Postgres lookups and mirrored in the API:
 | Wire field | Lookup | Notes |
 |------------|--------|-------|
 | `decision` | `decision_codes` | `pay` \| `return` \| `review` |
+| `match.code` | `match_codes` | Present only when one artifact authorized `pay` |
+| `match.facts` | (per-code keys below) | Structured machine fields; omit when empty |
 | `exceptions[].code` | `exception_codes` | Machine exception token |
 | `exceptions[].facts` | (per-code keys below) | Structured machine fields; omit when empty |
 
@@ -14,7 +16,7 @@ There is **no** primary `reason_code` / `reason`, **no** `severity`, and **no** 
 
 **Normative**
 
-1. Control flow uses `decision`, `exceptions[].code`, and `exceptions[].facts` keys — exact match on tokens / keys.
+1. Control flow uses `decision`, `exceptions[].code`, and `exceptions[].facts` keys — exact match on tokens / keys. `match` is the authorizing artifact for a person or an audit row. Do not branch the rail on it.
 2. Fact **keys and JSON types** are closed per code (below). Adding a key is a docs + engine change.
 3. Adding a code is a schema + docs change (seed row in the lookup), not a silent server invent.
 4. Persist path: `decision_audit.decision` is FK-enforced; `exceptions` JSONB must only contain codes from `exception_codes` (enforced in app on write for the spike).
@@ -31,7 +33,7 @@ Overall decision follows the rail pipeline (see [decision-order.md](decision-ord
 
 1. Gate failure (account / register / expired) → `return` with that code
 2. Else any field mismatches → `review`, or `return` when `return_on_mismatch`
-3. Else → `pay` with `exceptions: []`
+3. Else → `pay` with `exceptions: []` and `match` = `REGISTER_MATCH` (`register_item_id`)
 
 ## Exception codes and facts
 
@@ -53,6 +55,14 @@ Overall decision follows the rail pipeline (see [decision-order.md](decision-ord
 | `AMOUNT_MISMATCH` | Presented amount ≠ issued amount | `presented_amount` (int, minor units), `issued_amount` (int) |
 | `PAYEE_MISMATCH` | Payee does not match (normalized) | `presented_payee` (string), `issued_payee` (string) |
 | `ISSUE_DATE_MISMATCH` | Presented vs issued issue date | `presented_issue_date` (YYYY-MM-DD), `issued_issue_date` (YYYY-MM-DD) |
+
+### Match codes
+
+One object, not a list. Omitted when the decision is `return` or `review`.
+
+| Code | When | Facts |
+|------|------|-------|
+| `REGISTER_MATCH` | Clean check pay | `register_item_id` (string, register row id) |
 
 ### ACH rail
 

@@ -38,7 +38,7 @@ See [decision-order.md](decision-order.md) check pipeline and [exceptions.md](ex
 | Past max age | `issue_date` | `CHECK_EXPIRED` → `return` |
 | Amount differs | amount | `AMOUNT_MISMATCH` |
 | Payee differs | payee | `PAYEE_MISMATCH` |
-| All match | — | `pay` |
+| All match | — | `pay` with `REGISTER_MATCH` |
 
 Default for field mismatch: `decision=review`. Party/FI **`return_on_mismatch`** (see `party_check_settings` / `fi_check_settings`) forces `return` instead — useful for wash demos (Acme party seed is `true`).
 
@@ -67,4 +67,4 @@ See [decision-api.md](decision-api.md)#check-register-upload.
 
 ## Audit
 
-Every decide writes `decision_audit` (append-only) with rail, ids, request snapshot (JSONB), decision, exceptions, `latency_ms`, `correlation_id`.
+Every decide writes `decision_audit` (append-only) with rail, ids, request snapshot (JSONB), decision, `match` (null unless a clean pay), exceptions, `latency_ms`, `correlation_id`.

@@ -24,4 +24,7 @@ const (
 	CodeAmountMismatch     = "AMOUNT_MISMATCH"
 	CodePayeeMismatch      = "PAYEE_MISMATCH"
 	CodeIssueDateMismatch  = "ISSUE_DATE_MISMATCH"
+
+	// CodeRegisterMatch is the single authorizing artifact on a clean check pay.
+	CodeRegisterMatch = "REGISTER_MATCH"
 )

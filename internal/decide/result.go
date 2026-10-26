@@ -10,10 +10,18 @@ type Exception struct {
 	Facts Facts  `json:"facts,omitempty"`
 }
 
+// Match is the single artifact that authorized a pay.
+// Same closed shape as an Exception. Omitted when nothing authorized the item.
+type Match struct {
+	Code  string `json:"code"`
+	Facts Facts  `json:"facts,omitempty"`
+}
+
 // Result is the hot-path decide response body.
-// Why is carried only by Exceptions (empty when decision is pay with no findings).
+// Exceptions carry failures. Match names the one artifact that authorized a pay.
 type Result struct {
 	Decision      string      `json:"decision"`
+	Match         *Match      `json:"match,omitempty"`
 	Exceptions    []Exception `json:"exceptions"`
 	CorrelationID string      `json:"correlation_id,omitempty"`
 	LatencyMs     int64       `json:"latency_ms"`

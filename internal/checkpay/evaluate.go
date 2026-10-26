@@ -20,6 +20,7 @@ type Account struct {
 
 // RegisterItem is an issued check row used for matching.
 type RegisterItem struct {
+	ID              string
 	CheckNumber     string
 	Amount          int64
 	Payee           string
@@ -143,7 +144,14 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 	}
 
 	if len(excs) == 0 {
-		return decide.NewResult(decide.DecisionPay, nil)
+		result := decide.NewResult(decide.DecisionPay, nil)
+		result.Match = &decide.Match{
+			Code: decide.CodeRegisterMatch,
+			Facts: decide.Facts{
+				"register_item_id": item.ID,
+			},
+		}
+		return result
 	}
 
 	decision := decide.DecisionReview

@@ -20,7 +20,7 @@ Pipelines for the hot path. Order is contractual for the spike.
    - issue date (if present + tolerance configured) → ISSUE_DATE_MISMATCH
 4. Decide
    - any mismatch → `review`, or `return` when party/FI `return_on_mismatch` is true
-   - none → `pay`, then set register `paid_at` (replay → `CHECK_ALREADY_PAID`)
+   - none → `pay` with `match` `REGISTER_MATCH` (`register_item_id`), then set register `paid_at` (replay → `CHECK_ALREADY_PAID`, no match)
 ```
 
 Gates stop before field matching. Field mismatches always list every failing check.

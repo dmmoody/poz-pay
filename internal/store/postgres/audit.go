@@ -29,6 +29,14 @@ func (s *AuditStore) WriteCheckDecision(
 	if err != nil {
 		return "", fmt.Errorf("marshal exceptions: %w", err)
 	}
+	var matchJSON any
+	if result.Match != nil {
+		b, err := json.Marshal(result.Match)
+		if err != nil {
+			return "", fmt.Errorf("marshal match: %w", err)
+		}
+		matchJSON = b
+	}
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("marshal request: %w", err)
@@ -51,14 +59,14 @@ func (s *AuditStore) WriteCheckDecision(
 	err = s.db.QueryRowContext(ctx, `
 		INSERT INTO decision_audit (
 			fi_id, party_id, account_id, rail, decision,
-			exceptions, request, correlation_id, latency_ms
+			match, exceptions, request, correlation_id, latency_ms
 		) VALUES (
 			$1::uuid, $2::uuid, $3::uuid, $4, $5,
-			$6::jsonb, $7::jsonb, $8, $9
+			$6::jsonb, $7::jsonb, $8::jsonb, $9, $10
 		)
 		RETURNING id::text
 	`, fiID, party, account, decide.RailCheck, result.Decision,
-		excs, reqJSON, corr, result.LatencyMs).Scan(&id)
+		matchJSON, excs, reqJSON, corr, result.LatencyMs).Scan(&id)
 	if err != nil {
 		return "", fmt.Errorf("insert decision_audit: %w", err)
 	}

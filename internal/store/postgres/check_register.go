@@ -29,12 +29,13 @@ func (s *CheckRegisterStore) FindItem(ctx context.Context, fiID, accountID, chec
 		payeeNorm sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT check_number, amount, payee, payee_normalized, issue_date, voided_at, paid_at
+		SELECT id::text, check_number, amount, payee, payee_normalized, issue_date, voided_at, paid_at
 		FROM check_register_items
 		WHERE fi_id = $1::uuid AND account_id = $2::uuid AND check_number = $3
 		ORDER BY voided_at NULLS FIRST, created_at DESC
 		LIMIT 1
 	`, fiID, accountID, checkNumber).Scan(
+		&item.ID,
 		&item.CheckNumber,
 		&item.Amount,
 		&item.Payee,

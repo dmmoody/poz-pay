@@ -62,7 +62,7 @@ ACH example:
 
 #### Response `200`
 
-`decision`, `exceptions[].code`, and `exceptions[].facts` keys are **closed** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch on those only. There is no `reason_code`, `severity`, or freeform `detail`.
+`decision`, `match.code`, `match.facts` keys, `exceptions[].code`, and `exceptions[].facts` keys are **closed** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch the rail on `decision` and `exceptions` only. `match` is the one artifact that authorized a `pay`. It is omitted on `return` and `review`. There is no `reason_code`, `severity`, confidence score, or freeform `detail`.
 
 ```json
 {
@@ -95,6 +95,21 @@ Multi-mismatch example:
   ],
   "correlation_id": "core-txn-abc",
   "latency_ms": 3
+}
+```
+
+Clean pay names the register row. Field matches are not listed.
+
+```json
+{
+  "decision": "pay",
+  "match": {
+    "code": "REGISTER_MATCH",
+    "facts": {"register_item_id": "17171717-1717-1717-1717-171717171717"}
+  },
+  "exceptions": [],
+  "correlation_id": "core-txn-abc",
+  "latency_ms": 2
 }
 ```
 

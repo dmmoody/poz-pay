@@ -16,13 +16,14 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 | 8 | drop_reason_codes | Remove `reason` / `reason_code` / `reason_codes` (exceptions-only why) |
 | 9 | drop_exception_severity | Remove `exception_severities` and `exception_codes.severity` |
 | 10 | check_max_age | `max_age_days` (default 180) + `CHECK_EXPIRED` |
+| 11 | decision_match | `match_codes` + nullable `decision_audit.match` |
 
 ## Integrity patterns
 
 - Composite `(id, fi_id)` unique on parties/accounts so children can FK both columns and cannot cross FIs.
 - Money: `bigint` minor units.
 - Lookups + FKs for all stable codes (no free-form decision/exception enums).
-- API `decision` + exception codes + per-code `facts` keys are that closed vocabulary.
+- API `decision`, `match` codes, and exception codes, plus per-code `facts` keys, are that closed vocabulary.
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
 - `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents.

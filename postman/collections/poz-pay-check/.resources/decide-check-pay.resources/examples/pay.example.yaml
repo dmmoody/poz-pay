@@ -15,6 +15,10 @@ response:
     content: |-
       {
         "decision": "pay",
+        "match": {
+          "code": "REGISTER_MATCH",
+          "facts": {"register_item_id": "17171717-1717-1717-1717-171717171717"}
+        },
         "exceptions": [],
         "correlation_id": "postman-check-pay",
         "latency_ms": 2
