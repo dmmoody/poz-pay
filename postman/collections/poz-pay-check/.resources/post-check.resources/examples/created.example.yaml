@@ -1,0 +1,22 @@
+$kind: "http-example"
+name: created
+order: 1000
+request:
+  url: '{{base_url}}/v1/fis/:fi_id/accounts/:account_id/check-postings'
+  method: POST
+response:
+  statusCode: 201
+  statusText: Created
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+        "check_number": "1005",
+        "paid_at": "2026-10-26T18:00:00Z",
+        "correlation_id": "postman-check-1005-post",
+        "already_paid": false
+      }
