@@ -15,6 +15,7 @@ response:
     content: |-
       {
         "decision": "return",
+        "match": null,
         "exceptions": [
           {
             "code": "CHECK_EXPIRED",

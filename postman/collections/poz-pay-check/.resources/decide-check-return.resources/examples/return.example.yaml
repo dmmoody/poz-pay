@@ -15,6 +15,7 @@ response:
     content: |-
       {
         "decision": "return",
+        "match": null,
         "exceptions": [
           {
             "code": "CHECK_NOT_IN_REGISTER",

@@ -7,7 +7,7 @@ Codes are a **closed set**, owned by Postgres lookups and mirrored in the API:
 | Wire field | Lookup | Notes |
 |------------|--------|-------|
 | `decision` | `decision_codes` | `pay` \| `return` \| `review` |
-| `match.code` | `match_codes` | Present only when one artifact authorized `pay` |
+| `match` | `match_codes` when non-null | Always present. `null`, or one object when an artifact authorized `pay` |
 | `match.facts` | (per-code keys below) | Structured machine fields; omit when empty |
 | `exceptions[].code` | `exception_codes` | Machine exception token |
 | `exceptions[].facts` | (per-code keys below) | Structured machine fields; omit when empty |
@@ -58,7 +58,7 @@ Overall decision follows the rail pipeline (see [decision-order.md](decision-ord
 
 ### Match codes
 
-One object, not a list. Omitted when the decision is `return` or `review`.
+Always one JSON field. `null` on `return` and `review`. An object only when something authorized `pay`.
 
 | Code | When | Facts |
 |------|------|-------|

@@ -8,7 +8,7 @@ import (
 	"github.com/dmmoody/poz-pay/internal/decide"
 )
 
-func TestResultJSON_omitsMatchWhenAbsent(t *testing.T) {
+func TestResultJSON_matchNullWhenNothingAuthorized(t *testing.T) {
 	t.Parallel()
 	r := decide.NewResult(decide.DecisionReturn, []decide.Exception{{
 		Code: decide.CodeCheckVoided,
@@ -17,8 +17,8 @@ func TestResultJSON_omitsMatchWhenAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(b), `"match"`) {
-		t.Fatalf("match leaked into %s", b)
+	if !strings.Contains(string(b), `"match":null`) {
+		t.Fatalf("match=%s", b)
 	}
 }
 

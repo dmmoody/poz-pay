@@ -62,11 +62,12 @@ ACH example:
 
 #### Response `200`
 
-`decision`, `match.code`, `match.facts` keys, `exceptions[].code`, and `exceptions[].facts` keys are **closed** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch the rail on `decision` and `exceptions` only. `match` is the one artifact that authorized a `pay`. It is omitted on `return` and `review`. There is no `reason_code`, `severity`, confidence score, or freeform `detail`.
+`decision`, `match` (`null` or `match.code` / `match.facts`), `exceptions[].code`, and `exceptions[].facts` keys are **closed** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch the rail on `decision` and `exceptions` only. `match` is always present: the one artifact that authorized a `pay`, or `null`. There is no `reason_code`, `severity`, confidence score, or freeform `detail`.
 
 ```json
 {
   "decision": "return",
+  "match": null,
   "exceptions": [
     {
       "code": "CHECK_NOT_IN_REGISTER",
@@ -83,6 +84,7 @@ Multi-mismatch example:
 ```json
 {
   "decision": "return",
+  "match": null,
   "exceptions": [
     {
       "code": "AMOUNT_MISMATCH",
