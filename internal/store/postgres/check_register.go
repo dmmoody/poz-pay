@@ -143,7 +143,7 @@ func (s *CheckRegisterStore) InsertBatch(
 
 // RecordPayment sets paid_at on the active register item.
 // A repeated call returns the original posting and does not move paid_at.
-func (s *CheckRegisterStore) RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string) (checkpay.Payment, error) {
+func (s *CheckRegisterStore) RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string, postedAt time.Time) (checkpay.Payment, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return checkpay.Payment{}, fmt.Errorf("begin post: %w", err)
@@ -195,12 +195,12 @@ func (s *CheckRegisterStore) RecordPayment(ctx context.Context, fiID, accountID,
 	var posted time.Time
 	err = tx.QueryRowContext(ctx, `
 		UPDATE check_register_items
-		SET paid_at = now(), paid_correlation_id = $2
+		SET paid_at = $2, paid_correlation_id = $3
 		WHERE id = $1::uuid
 		  AND voided_at IS NULL
 		  AND paid_at IS NULL
 		RETURNING paid_at
-	`, id, corr).Scan(&posted)
+	`, id, postedAt.UTC(), corr).Scan(&posted)
 	if err != nil {
 		return checkpay.Payment{}, fmt.Errorf("record payment: %w", err)
 	}

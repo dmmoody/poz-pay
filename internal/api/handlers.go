@@ -137,6 +137,7 @@ func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
 
 type postRequest struct {
 	CheckNumber   string `json:"check_number"`
+	PaidAt        string `json:"paid_at"`
 	CorrelationID string `json:"correlation_id"`
 }
 
@@ -159,12 +160,18 @@ func (h *Handlers) PostCheck(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check_number is required")
 		return
 	}
+	paidAt, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(req.PaidAt))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "paid_at is required and must be RFC3339")
+		return
+	}
 
 	payment, err := h.Checks.Post(r.Context(), checkpay.PostInput{
 		FIID:          fiID,
 		AccountID:     accountID,
 		CheckNumber:   req.CheckNumber,
 		CorrelationID: req.CorrelationID,
+		PaidAt:        paidAt,
 	})
 	if writeCheckErr(w, err) {
 		return
@@ -216,7 +223,7 @@ func writeCheckErr(w http.ResponseWriter, err error) bool {
 		writeError(w, http.StatusNotFound, "CHECK_NOT_IN_REGISTER", err.Error())
 	case errors.Is(err, checkpay.ErrCheckVoided):
 		writeError(w, http.StatusConflict, "CHECK_VOIDED", err.Error())
-	case errors.Is(err, checkpay.ErrCheckNumberRequired):
+	case errors.Is(err, checkpay.ErrCheckNumberRequired), errors.Is(err, checkpay.ErrPaidAtRequired):
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	default:
 		return false

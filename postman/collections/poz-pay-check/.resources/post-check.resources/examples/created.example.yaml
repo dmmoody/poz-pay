@@ -17,6 +17,5 @@ response:
         "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
         "check_number": "1005",
         "paid_at": "2026-10-26T18:00:00Z",
-        "correlation_id": "postman-check-1005-post",
-        "already_paid": false
+        "correlation_id": "postman-check-1005-post"
       }

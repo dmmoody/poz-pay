@@ -26,7 +26,7 @@ type RegisterReader interface {
 // RegisterWriter persists upload batches and postings.
 type RegisterWriter interface {
 	InsertBatch(ctx context.Context, fiID, partyID string, items []UploadItem, payeeNorm func(string) string) (UploadBatchResult, error)
-	RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string) (Payment, error)
+	RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string, paidAt time.Time) (Payment, error)
 }
 
 // PolicyResolver loads check decide policy for an FI/party.
@@ -80,7 +80,9 @@ type Payment struct {
 	CheckNumber    string    `json:"check_number"`
 	PaidAt         time.Time `json:"paid_at"`
 	CorrelationID  string    `json:"correlation_id,omitempty"`
-	AlreadyPaid    bool      `json:"already_paid"`
+	// AlreadyPaid reports that this call found an existing posting. It selects HTTP 200
+	// versus 201 and is not part of the posting body.
+	AlreadyPaid bool `json:"-"`
 }
 
 // PostInput records that the core posted a check.
@@ -89,6 +91,7 @@ type PostInput struct {
 	AccountID     string
 	CheckNumber   string
 	CorrelationID string
+	PaidAt        time.Time
 }
 
 // UploadItem is a register line accepted by the service.
@@ -167,6 +170,9 @@ var ErrCheckVoided = fmt.Errorf("check voided")
 // ErrCheckNumberRequired is returned when a check number is blank.
 var ErrCheckNumberRequired = fmt.Errorf("check number is required")
 
+// ErrPaidAtRequired is returned when a posting omits the paying system's timestamp.
+var ErrPaidAtRequired = fmt.Errorf("paid_at is required")
+
 // Decide evaluates a presented check and appends one history row. It does not post the item.
 func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, error) {
 	start := time.Now()
@@ -238,12 +244,15 @@ func (s *Service) Post(ctx context.Context, in PostInput) (Payment, error) {
 	if in.CheckNumber == "" {
 		return Payment{}, ErrCheckNumberRequired
 	}
+	if in.PaidAt.IsZero() {
+		return Payment{}, ErrPaidAtRequired
+	}
 
 	if err := s.requireAccount(ctx, in.FIID, in.AccountID); err != nil {
 		return Payment{}, err
 	}
 
-	payment, err := s.writer.RecordPayment(ctx, in.FIID, in.AccountID, in.CheckNumber, in.CorrelationID)
+	payment, err := s.writer.RecordPayment(ctx, in.FIID, in.AccountID, in.CheckNumber, in.CorrelationID, in.PaidAt.UTC())
 	if err != nil {
 		return Payment{}, err
 	}

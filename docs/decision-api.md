@@ -134,11 +134,12 @@ Decide does not post the check. The same request may be sent again; each call ap
 
 ### `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`
 
-Records that the core posted the item. Sets `paid_at` once.
+Records that the paying system posted the item. Stores that system's `paid_at` once.
 
 ```json
 {
   "check_number": "1005",
+  "paid_at": "2026-10-26T17:44:00Z",
   "correlation_id": "core-txn-abc"
 }
 ```
@@ -146,19 +147,19 @@ Records that the core posted the item. Sets `paid_at` once.
 | Field | Required | Notes |
 |-------|----------|-------|
 | `check_number` | yes | Register key |
+| `paid_at` | yes | RFC3339 timestamp from the paying system. A repeat does not replace it |
 | `correlation_id` | no | Stored on the first post only |
 
 #### Response `201` (first post) / `200` (already posted)
 
-`200` returns the original `paid_at` and `correlation_id`. `already_paid` is true. Example below is the first post.
+The body is the posting either way. A repeat returns the same `paid_at` and `correlation_id`. Status `201` means this call wrote them. Status `200` means they were already stored.
 
 ```json
 {
   "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
   "check_number": "1005",
   "paid_at": "2026-10-26T17:44:00Z",
-  "correlation_id": "core-txn-abc",
-  "already_paid": false
+  "correlation_id": "core-txn-abc"
 }
 ```
 

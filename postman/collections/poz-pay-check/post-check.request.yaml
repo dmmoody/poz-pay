@@ -16,6 +16,7 @@ body:
   content: |-
     {
       "check_number": "1005",
+      "paid_at": "2026-10-26T18:00:00Z",
       "correlation_id": "postman-check-1005-post"
     }
 examples: './.resources/post-check.resources/examples'

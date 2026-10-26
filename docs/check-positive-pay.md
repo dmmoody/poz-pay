@@ -50,7 +50,7 @@ Age is calendar days from register **`issue_date`** to decide time. FI/party **`
 
 Decide does not set `paid_at`. Each presentment is its own `decision_audit` row, so the same unpaid check can be decided again and the attempts stay in order (`check_number`, `decided_at`).
 
-The core records settlement with `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`. That sets `paid_at` and `paid_correlation_id` once. A repeated post returns the original posting. Later decides return **`CHECK_ALREADY_PAID`**.
+The paying system records settlement with `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`, including its own `paid_at`. That timestamp and `paid_correlation_id` are stored once. A repeated post returns the original posting. Later decides return **`CHECK_ALREADY_PAID`**.
 
 `GET …/checks/{check_number}/decisions` lists those presentments, oldest first, with `paid_at` when the item has posted.
 

@@ -20,6 +20,8 @@ const (
 	testAccountID = "22222222-2222-2222-2222-222222222222"
 )
 
+var testPaidAt = time.Date(2026, 10, 26, 18, 0, 0, 0, time.UTC)
+
 func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	t.Parallel()
 
@@ -66,11 +68,12 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		AccountID:     testAccountID,
 		CheckNumber:   "1005",
 		CorrelationID: "core-1",
+		PaidAt:        testPaidAt,
 	})
 	if err != nil {
 		t.Fatalf("post: %v", err)
 	}
-	if posted.AlreadyPaid || posted.RegisterItemID != "reg-1005" || posted.CorrelationID != "core-1" {
+	if posted.AlreadyPaid || posted.RegisterItemID != "reg-1005" || posted.CorrelationID != "core-1" || !posted.PaidAt.Equal(testPaidAt) {
 		t.Fatalf("post = %+v", posted)
 	}
 
@@ -79,6 +82,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		AccountID:     testAccountID,
 		CheckNumber:   "1005",
 		CorrelationID: "core-2",
+		PaidAt:        testPaidAt.Add(time.Hour),
 	})
 	if err != nil {
 		t.Fatalf("repeat post: %v", err)
@@ -130,7 +134,7 @@ func TestPost_rejectsVoidedAndMissing(t *testing.T) {
 	t.Run("missing", func(t *testing.T) {
 		t.Parallel()
 		svc := newTestService(&memRegister{}, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "9999"})
+		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "9999", PaidAt: testPaidAt})
 		if err != checkpay.ErrCheckNotInRegister {
 			t.Fatalf("err = %v", err)
 		}
@@ -143,7 +147,7 @@ func TestPost_rejectsVoidedAndMissing(t *testing.T) {
 			ID:       "reg-void",
 			VoidedAt: &voidedAt,
 		}}, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "1003"})
+		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "1003", PaidAt: testPaidAt})
 		if err != checkpay.ErrCheckVoided {
 			t.Fatalf("err = %v", err)
 		}
@@ -153,7 +157,7 @@ func TestPost_rejectsVoidedAndMissing(t *testing.T) {
 		t.Parallel()
 		reg := &memRegister{item: &checkpay.RegisterItem{ID: "reg-1"}}
 		svc := newTestService(reg, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: "missing", CheckNumber: "1005"})
+		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: "missing", CheckNumber: "1005", PaidAt: testPaidAt})
 		if err != checkpay.ErrAccountNotFound {
 			t.Fatalf("err = %v", err)
 		}
@@ -199,12 +203,15 @@ func TestHTTP_presentmentsStayInHistoryUntilPost(t *testing.T) {
 		t.Fatalf("decisions = %d", len(decisions))
 	}
 
-	posted := postJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/check-postings", []byte(`{"check_number":"1005","correlation_id":"core-1"}`))
-	if posted.Status != http.StatusCreated || posted.JSON["already_paid"] != false {
+	posted := postJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/check-postings", []byte(`{"check_number":"1005","correlation_id":"core-1","paid_at":"2026-10-26T18:00:00Z"}`))
+	if posted.Status != http.StatusCreated || posted.JSON["correlation_id"] != "core-1" || posted.JSON["paid_at"] != "2026-10-26T18:00:00Z" {
 		t.Fatalf("post = %d %+v", posted.Status, posted.JSON)
 	}
-	replay := postJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/check-postings", []byte(`{"check_number":"1005","correlation_id":"core-2"}`))
-	if replay.Status != http.StatusOK || replay.JSON["already_paid"] != true || replay.JSON["correlation_id"] != "core-1" {
+	if _, ok := posted.JSON["already_paid"]; ok {
+		t.Fatalf("post body includes already_paid: %+v", posted.JSON)
+	}
+	replay := postJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/check-postings", []byte(`{"check_number":"1005","correlation_id":"core-2","paid_at":"2026-10-26T19:00:00Z"}`))
+	if replay.Status != http.StatusOK || replay.JSON["correlation_id"] != "core-1" || replay.JSON["paid_at"] != posted.JSON["paid_at"] {
 		t.Fatalf("replay post = %d %+v", replay.Status, replay.JSON)
 	}
 
@@ -291,7 +298,7 @@ func (m *memRegister) InsertBatch(context.Context, string, string, []checkpay.Up
 	return checkpay.UploadBatchResult{}, nil
 }
 
-func (m *memRegister) RecordPayment(_ context.Context, _, _, _, correlationID string) (checkpay.Payment, error) {
+func (m *memRegister) RecordPayment(_ context.Context, _, _, _, correlationID string, paidAt time.Time) (checkpay.Payment, error) {
 	if m.item == nil {
 		return checkpay.Payment{}, checkpay.ErrCheckNotInRegister
 	}
@@ -306,13 +313,13 @@ func (m *memRegister) RecordPayment(_ context.Context, _, _, _, correlationID st
 			AlreadyPaid:    true,
 		}, nil
 	}
-	paidAt := time.Now().UTC()
-	m.item.PaidAt = &paidAt
+	stored := paidAt.UTC()
+	m.item.PaidAt = &stored
 	m.item.PaidCorrelationID = correlationID
 	m.posts++
 	return checkpay.Payment{
 		RegisterItemID: m.item.ID,
-		PaidAt:         paidAt,
+		PaidAt:         stored,
 		CorrelationID:  correlationID,
 	}, nil
 }

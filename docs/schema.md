@@ -28,7 +28,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
 - `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents. Check rail rows require `check_number`. One row per decide call.
-- `check_register_items.paid_at` is the posting. `paid_correlation_id` is set only together with `paid_at`, and only by the first post.
+- `check_register_items.paid_at` is the paying system's settlement time. `paid_correlation_id` is set only together with `paid_at`, and only by the first post.
 
 ## Hot-path indexes
 
