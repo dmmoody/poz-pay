@@ -26,10 +26,12 @@ func (s *CheckRegisterStore) FindItem(ctx context.Context, fiID, accountID, chec
 		issueDate sql.NullTime
 		voidedAt  sql.NullTime
 		paidAt    sql.NullTime
+		paidCorr  sql.NullString
 		payeeNorm sql.NullString
 	)
 	err := s.db.QueryRowContext(ctx, `
-		SELECT id::text, check_number, amount, payee, payee_normalized, issue_date, voided_at, paid_at
+		SELECT id::text, check_number, amount, payee, payee_normalized,
+		       issue_date, voided_at, paid_at, paid_correlation_id
 		FROM check_register_items
 		WHERE fi_id = $1::uuid AND account_id = $2::uuid AND check_number = $3
 		ORDER BY voided_at NULLS FIRST, created_at DESC
@@ -43,6 +45,7 @@ func (s *CheckRegisterStore) FindItem(ctx context.Context, fiID, accountID, chec
 		&issueDate,
 		&voidedAt,
 		&paidAt,
+		&paidCorr,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -62,8 +65,11 @@ func (s *CheckRegisterStore) FindItem(ctx context.Context, fiID, accountID, chec
 		item.VoidedAt = &t
 	}
 	if paidAt.Valid {
-		t := paidAt.Time
+		t := paidAt.Time.UTC()
 		item.PaidAt = &t
+	}
+	if paidCorr.Valid {
+		item.PaidCorrelationID = paidCorr.String
 	}
 	return &item, nil
 }
@@ -135,24 +141,80 @@ func (s *CheckRegisterStore) InsertBatch(
 	return out, nil
 }
 
-// MarkPaid sets paid_at on the active (non-void) register item if still unpaid.
-// Returns true when this call marked the row; false if already paid, voided, or missing.
-func (s *CheckRegisterStore) MarkPaid(ctx context.Context, fiID, accountID, checkNumber string) (bool, error) {
-	res, err := s.db.ExecContext(ctx, `
+// RecordPayment sets paid_at on the active register item.
+// A repeated call returns the original posting and does not move paid_at.
+func (s *CheckRegisterStore) RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string) (checkpay.Payment, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return checkpay.Payment{}, fmt.Errorf("begin post: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var (
+		id       string
+		voidedAt sql.NullTime
+		paidAt   sql.NullTime
+		paidCorr sql.NullString
+	)
+	err = tx.QueryRowContext(ctx, `
+		SELECT id::text, voided_at, paid_at, paid_correlation_id
+		FROM check_register_items
+		WHERE fi_id = $1::uuid AND account_id = $2::uuid AND check_number = $3
+		ORDER BY voided_at NULLS FIRST, created_at DESC
+		LIMIT 1
+		FOR UPDATE
+	`, fiID, accountID, checkNumber).Scan(&id, &voidedAt, &paidAt, &paidCorr)
+	if errors.Is(err, sql.ErrNoRows) {
+		return checkpay.Payment{}, checkpay.ErrCheckNotInRegister
+	}
+	if err != nil {
+		return checkpay.Payment{}, fmt.Errorf("lock register item: %w", err)
+	}
+	if voidedAt.Valid {
+		return checkpay.Payment{}, checkpay.ErrCheckVoided
+	}
+	if paidAt.Valid {
+		payment := checkpay.Payment{
+			RegisterItemID: id,
+			PaidAt:         paidAt.Time.UTC(),
+			AlreadyPaid:    true,
+		}
+		if paidCorr.Valid {
+			payment.CorrelationID = paidCorr.String
+		}
+		if err := tx.Commit(); err != nil {
+			return checkpay.Payment{}, fmt.Errorf("commit post: %w", err)
+		}
+		return payment, nil
+	}
+
+	var corr any
+	if correlationID != "" {
+		corr = correlationID
+	}
+	var posted time.Time
+	err = tx.QueryRowContext(ctx, `
 		UPDATE check_register_items
-		SET paid_at = now()
-		WHERE fi_id = $1::uuid
-		  AND account_id = $2::uuid
-		  AND check_number = $3
+		SET paid_at = now(), paid_correlation_id = $2
+		WHERE id = $1::uuid
 		  AND voided_at IS NULL
 		  AND paid_at IS NULL
-	`, fiID, accountID, checkNumber)
+		RETURNING paid_at
+	`, id, corr).Scan(&posted)
 	if err != nil {
-		return false, fmt.Errorf("mark paid: %w", err)
+		return checkpay.Payment{}, fmt.Errorf("record payment: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("mark paid rows: %w", err)
+	if err := tx.Commit(); err != nil {
+		return checkpay.Payment{}, fmt.Errorf("commit post: %w", err)
 	}
-	return n > 0, nil
+	return checkpay.Payment{
+		RegisterItemID: id,
+		PaidAt:         posted.UTC(),
+		CorrelationID:  correlationID,
+	}, nil
 }
+
+var (
+	_ checkpay.RegisterReader = (*CheckRegisterStore)(nil)
+	_ checkpay.RegisterWriter = (*CheckRegisterStore)(nil)
+)

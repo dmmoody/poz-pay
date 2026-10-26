@@ -121,7 +121,7 @@ VALUES
      '22222222-2222-2222-2222-222222222222',
      '1004', 7500, 'OFFICE DEPOT', 'OFFICE DEPOT', DATE '2026-09-01',
      NULL, TIMESTAMPTZ '2026-09-05 15:30:00+00'),
-    -- Second unpaid item for double-presentment demo (pay once, then already-paid)
+    -- Unpaid. Repeated decide stays pay until a posting, then CHECK_ALREADY_PAID.
     ('1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a',
      '33333333-3333-3333-3333-333333333333',
      '11111111-1111-1111-1111-111111111111',

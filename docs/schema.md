@@ -17,6 +17,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 | 9 | drop_exception_severity | Remove `exception_severities` and `exception_codes.severity` |
 | 10 | check_max_age | `max_age_days` (default 180) + `CHECK_EXPIRED` |
 | 11 | decision_match | `match_codes` + nullable `decision_audit.match` |
+| 12 | check_presentment_history | `decision_audit.check_number` + `register_item_id`; `paid_correlation_id` on register items |
 
 ## Integrity patterns
 
@@ -26,11 +27,13 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 - API `decision`, `match` codes, and exception codes, plus per-code `facts` keys, are that closed vocabulary.
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
-- `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents.
+- `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents. Check rail rows require `check_number`. One row per decide call.
+- `check_register_items.paid_at` is the posting. `paid_correlation_id` is set only together with `paid_at`, and only by the first post.
 
 ## Hot-path indexes
 
 - `check_register_items (fi_id, account_id, check_number)`
+- `decision_audit (fi_id, account_id, check_number, decided_at, id)` where `rail = 'check'`
 - `ach_whitelist_entries (fi_id, party_id, originator_id)` where `status = 'active'`
 - `rules (rule_set_id, priority)` where enabled
 

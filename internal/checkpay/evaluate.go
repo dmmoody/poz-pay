@@ -20,14 +20,15 @@ type Account struct {
 
 // RegisterItem is an issued check row used for matching.
 type RegisterItem struct {
-	ID              string
-	CheckNumber     string
-	Amount          int64
-	Payee           string
-	PayeeNormalized string
-	IssueDate       *time.Time // date-only; wall date in UTC noon or date truncated
-	VoidedAt        *time.Time
-	PaidAt          *time.Time
+	ID                string
+	CheckNumber       string
+	Amount            int64
+	Payee             string
+	PayeeNormalized   string
+	IssueDate         *time.Time // date-only; wall date in UTC noon or date truncated
+	VoidedAt          *time.Time
+	PaidAt            *time.Time
+	PaidCorrelationID string
 }
 
 // PresentedCheck is the inbound presented item.

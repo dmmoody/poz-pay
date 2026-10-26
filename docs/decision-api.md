@@ -130,6 +130,75 @@ Malformed body, unknown `rail`, missing rail payload, or unknown `fi_id`:
 
 Unknown account under a known FI is a **decide outcome** (`ACCOUNT_NOT_OURS`), not 404.
 
+Decide does not post the check. The same request may be sent again; each call appends decision history and, until a posting, returns the same `pay` for a clean match.
+
+### `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`
+
+Records that the core posted the item. Sets `paid_at` once.
+
+```json
+{
+  "check_number": "1005",
+  "correlation_id": "core-txn-abc"
+}
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `check_number` | yes | Register key |
+| `correlation_id` | no | Stored on the first post only |
+
+#### Response `201` (first post) / `200` (already posted)
+
+`200` returns the original `paid_at` and `correlation_id`. `already_paid` is true. Example below is the first post.
+
+```json
+{
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "check_number": "1005",
+  "paid_at": "2026-10-26T17:44:00Z",
+  "correlation_id": "core-txn-abc",
+  "already_paid": false
+}
+```
+
+| Status | When |
+|--------|------|
+| `404` `FI_NOT_FOUND` | Unknown `fi_id` |
+| `404` `ACCOUNT_NOT_FOUND` | Account not under the FI |
+| `404` `CHECK_NOT_IN_REGISTER` | No register row |
+| `409` `CHECK_VOIDED` | Only a voided row |
+
+### `GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/decisions`
+
+Every decide for that check, oldest first, plus the posting when `paid_at` is set. Empty `decisions` is `200` when the account exists and the check has never been presented.
+
+```json
+{
+  "check_number": "1005",
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "paid_at": null,
+  "decisions": [
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "decision": "pay",
+      "match": {
+        "code": "REGISTER_MATCH",
+        "facts": {"register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a"}
+      },
+      "exceptions": [],
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "decided_at": "2026-10-26T17:40:00Z",
+      "latency_ms": 2
+    }
+  ]
+}
+```
+
+`request` is the stored decide body for that attempt. The same `correlation_id` can appear on more than one row.
+
 ---
 
 ## Check register upload

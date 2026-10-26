@@ -50,7 +50,7 @@ Overall decision follows the rail pipeline (see [decision-order.md](decision-ord
 |------|------|-------|
 | `CHECK_NOT_IN_REGISTER` | No active register item | `check_number` (string) |
 | `CHECK_VOIDED` | Register item marked void | `check_number` (string) |
-| `CHECK_ALREADY_PAID` | Register item already paid/presented | `check_number` (string) |
+| `CHECK_ALREADY_PAID` | Register item posted (`paid_at` set). A repeated decide before post is another `pay` row, not this code | `check_number` (string) |
 | `CHECK_EXPIRED` | Past FI/party `max_age_days` (default 180) | `check_number` (string), `issue_date` (YYYY-MM-DD), `age_days` (int), `max_age_days` (int) |
 | `AMOUNT_MISMATCH` | Presented amount ≠ issued amount | `presented_amount` (int, minor units), `issued_amount` (int) |
 | `PAYEE_MISMATCH` | Payee does not match (normalized) | `presented_payee` (string), `issued_payee` (string) |

@@ -11,7 +11,7 @@ Pipelines for the hot path. Order is contractual for the spike.
 2. Lookup register item (fi_id, account_id, check_number) where not voided
    - missing → CHECK_NOT_IN_REGISTER → return
    - voided → CHECK_VOIDED → return
-   - already paid (if tracked) → CHECK_ALREADY_PAID → return
+   - posted (`paid_at` set) → CHECK_ALREADY_PAID → return
    - register issue_date older than FI/party `max_age_days` (default 180) → CHECK_EXPIRED → return
      (skipped when register has no issue_date)
 3. Accumulate field mismatches (list all that fail)
@@ -20,10 +20,18 @@ Pipelines for the hot path. Order is contractual for the spike.
    - issue date (if present + tolerance configured) → ISSUE_DATE_MISMATCH
 4. Decide
    - any mismatch → `review`, or `return` when party/FI `return_on_mismatch` is true
-   - none → `pay` with `match` `REGISTER_MATCH` (`register_item_id`), then set register `paid_at` (replay → `CHECK_ALREADY_PAID`, `match` null)
+   - none → `pay` with `match` `REGISTER_MATCH` (`register_item_id`)
 ```
 
+Each call appends one `decision_audit` row (`check_number`, `register_item_id` when the register row resolved, request, decision). Calling decide again before the item is posted returns the same `pay` and adds another row.
+
 Gates stop before field matching. Field mismatches always list every failing check.
+
+## Posting
+
+`paid_at` is settlement, written only by `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`. A repeated post returns the original `paid_at` and `paid_correlation_id`. After that, decide returns `CHECK_ALREADY_PAID`.
+
+`GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/decisions` returns the audit rows for that check, oldest first, plus `paid_at` when posted.
 
 ## ACH rail
 
