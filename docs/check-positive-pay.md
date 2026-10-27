@@ -52,7 +52,7 @@ Decide does not set `paid_at`. Each presentment is its own `decision_audit` row,
 
 The paying system records settlement with `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`, including its own `paid_at`. That timestamp and `paid_correlation_id` are stored once. A repeated post returns the original posting. Later decides return **`CHECK_ALREADY_PAID`**.
 
-`GET …/checks/{check_number}/decisions` lists those presentments, oldest first, with `paid_at` when the item has posted.
+`GET …/checks/{check_number}/decisions` lists the presentments. `GET …/checks/{check_number}/audit` is the whole stream: those presentments and the one `posted` event, oldest recorded first.
 
 ## Demo seed (Acme operating)
 
@@ -71,4 +71,4 @@ See [decision-api.md](decision-api.md)#check-register-upload.
 
 ## Audit
 
-Every decide writes `decision_audit` (append-only) with rail, ids, request snapshot (JSONB), decision, `match` (null unless a clean pay), exceptions, `latency_ms`, `correlation_id`, `check_number`, and `register_item_id` when the register row resolved. The same `correlation_id` may appear on more than one row: each call is a presentment attempt.
+Every decide appends a `presentment` row to `decision_audit`. The first post appends a `posted` row in the same transaction as `paid_at`. Both share `check_number` and are ordered by `decided_at` (when this service recorded the event). The paying system's settlement time is `decision_audit.paid_at` on the posted row. A repeated post does not append another row.

@@ -200,6 +200,45 @@ Every decide for that check, oldest first, plus the posting when `paid_at` is se
 
 `request` is the stored decide body for that attempt. The same `correlation_id` can appear on more than one row.
 
+### `GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/audit`
+
+One stream for the check, oldest recorded first. `kind` is `presentment` or `posted`. A presentment carries `presentment`. The posting carries `posted.paid_at` from the paying system. `recorded_at` is when this service stored the event. A repeated post does not add another `posted` row.
+
+```json
+{
+  "check_number": "1005",
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "events": [
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "kind": "presentment",
+      "recorded_at": "2026-10-26T17:40:00Z",
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "presentment": {
+        "decision": "pay",
+        "match": {
+          "code": "REGISTER_MATCH",
+          "facts": {"register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a"}
+        },
+        "exceptions": [],
+        "latency_ms": 2
+      }
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555555",
+      "kind": "posted",
+      "recorded_at": "2026-10-26T17:44:01Z",
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "posted": {"paid_at": "2026-10-26T17:44:00Z"}
+    }
+  ]
+}
+```
+
 ---
 
 ## Check register upload

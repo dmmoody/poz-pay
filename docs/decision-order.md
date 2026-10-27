@@ -31,7 +31,7 @@ Gates stop before field matching. Field mismatches always list every failing che
 
 `paid_at` is the paying system's settlement time, stored by `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`. A repeated post returns the original `paid_at` and `paid_correlation_id`. After that, decide returns `CHECK_ALREADY_PAID`.
 
-`GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/decisions` returns the audit rows for that check, oldest first, plus `paid_at` when posted.
+`GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/audit` returns that check's presentment and posted events, oldest recorded first.
 
 ## ACH rail
 

@@ -172,6 +172,7 @@ func (h *Handlers) PostCheck(w http.ResponseWriter, r *http.Request) {
 		CheckNumber:   req.CheckNumber,
 		CorrelationID: req.CorrelationID,
 		PaidAt:        paidAt,
+		RawRequest:    req,
 	})
 	if writeCheckErr(w, err) {
 		return
@@ -209,6 +210,30 @@ func (h *Handlers) ListCheckDecisions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, history)
+}
+
+func (h *Handlers) ListCheckAudit(w http.ResponseWriter, r *http.Request) {
+	fiID := r.PathValue("fi_id")
+	accountID := r.PathValue("account_id")
+	checkNumber := strings.TrimSpace(r.PathValue("check_number"))
+	if !looksLikeUUID(fiID) || !looksLikeUUID(accountID) {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and account_id must be UUIDs")
+		return
+	}
+	if checkNumber == "" {
+		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check_number is required")
+		return
+	}
+
+	audit, err := h.Checks.ListAudit(r.Context(), fiID, accountID, checkNumber)
+	if writeCheckErr(w, err) {
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "audit failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, audit)
 }
 
 func writeCheckErr(w http.ResponseWriter, err error) bool {

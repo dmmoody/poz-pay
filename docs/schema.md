@@ -18,6 +18,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 | 10 | check_max_age | `max_age_days` (default 180) + `CHECK_EXPIRED` |
 | 11 | decision_match | `match_codes` + nullable `decision_audit.match` |
 | 12 | check_presentment_history | `decision_audit.check_number` + `register_item_id`; `paid_correlation_id` on register items |
+| 13 | check_audit_kind | `check_audit_kinds`; `decision_audit.kind` + `paid_at` so presentment and posted share one stream |
 
 ## Integrity patterns
 
@@ -27,7 +28,7 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 - API `decision`, `match` codes, and exception codes, plus per-code `facts` keys, are that closed vocabulary.
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
-- `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents. Check rail rows require `check_number`. One row per decide call.
+- `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents. Check rail rows require `check_number`. One row per presentment or posting (`kind`).
 - `check_register_items.paid_at` is the paying system's settlement time. `paid_correlation_id` is set only together with `paid_at`, and only by the first post.
 
 ## Hot-path indexes

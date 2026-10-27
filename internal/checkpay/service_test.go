@@ -125,6 +125,33 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 			t.Fatalf("entry %d = %+v", i, entry)
 		}
 	}
+
+	audit, err := svc.ListAudit(ctx, testFIID, testAccountID, "1005")
+	if err != nil {
+		t.Fatalf("audit: %v", err)
+	}
+	got := make([]string, len(audit.Events))
+	for i, event := range audit.Events {
+		got[i] = event.Kind
+	}
+	want := []string{
+		checkpay.AuditKindPresentment,
+		checkpay.AuditKindPresentment,
+		checkpay.AuditKindPosted,
+		checkpay.AuditKindPresentment,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("audit kinds = %v", got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("audit kinds = %v", got)
+		}
+	}
+	postedEvent := audit.Events[2]
+	if postedEvent.Posted == nil || !postedEvent.Posted.PaidAt.Equal(testPaidAt) || postedEvent.CorrelationID != "core-1" {
+		t.Fatalf("posted event = %+v", postedEvent)
+	}
 }
 
 func TestPost_rejectsVoidedAndMissing(t *testing.T) {
@@ -219,6 +246,12 @@ func TestHTTP_presentmentsStayInHistoryUntilPost(t *testing.T) {
 	if after.Status != http.StatusOK || after.JSON["decision"] != "return" {
 		t.Fatalf("decide after post = %d %+v", after.Status, after.JSON)
 	}
+
+	audit := getJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/checks/1005/audit")
+	events, _ := audit.JSON["events"].([]any)
+	if audit.Status != http.StatusOK || len(events) != 4 {
+		t.Fatalf("audit = %d %+v", audit.Status, audit.JSON)
+	}
 }
 
 type httpResult struct {
@@ -288,6 +321,7 @@ func (memPolicy) ResolvePolicy(context.Context, string, string) (checkpay.Policy
 type memRegister struct {
 	item  *checkpay.RegisterItem
 	posts int
+	audit *memDecisions
 }
 
 func (m *memRegister) FindItem(context.Context, string, string, string) (*checkpay.RegisterItem, error) {
@@ -298,7 +332,7 @@ func (m *memRegister) InsertBatch(context.Context, string, string, []checkpay.Up
 	return checkpay.UploadBatchResult{}, nil
 }
 
-func (m *memRegister) RecordPayment(_ context.Context, _, _, _, correlationID string, paidAt time.Time) (checkpay.Payment, error) {
+func (m *memRegister) RecordPayment(_ context.Context, rec checkpay.PaymentRecord) (checkpay.Payment, error) {
 	if m.item == nil {
 		return checkpay.Payment{}, checkpay.ErrCheckNotInRegister
 	}
@@ -313,20 +347,31 @@ func (m *memRegister) RecordPayment(_ context.Context, _, _, _, correlationID st
 			AlreadyPaid:    true,
 		}, nil
 	}
-	stored := paidAt.UTC()
+	stored := rec.PaidAt.UTC()
 	m.item.PaidAt = &stored
-	m.item.PaidCorrelationID = correlationID
+	m.item.PaidCorrelationID = rec.CorrelationID
 	m.posts++
+	if m.audit != nil {
+		m.audit.events = append(m.audit.events, checkpay.CheckAuditEvent{
+			ID:             "posted",
+			Kind:           checkpay.AuditKindPosted,
+			RecordedAt:     time.Now().UTC(),
+			CorrelationID:  rec.CorrelationID,
+			RegisterItemID: m.item.ID,
+			Posted:         &checkpay.PostedAudit{PaidAt: stored},
+		})
+	}
 	return checkpay.Payment{
 		RegisterItemID: m.item.ID,
 		PaidAt:         stored,
-		CorrelationID:  correlationID,
+		CorrelationID:  rec.CorrelationID,
 	}, nil
 }
 
 type memDecisions struct {
 	entries []checkpay.CheckAuditEntry
 	rows    []checkpay.RecordedDecision
+	events  []checkpay.CheckAuditEvent
 }
 
 func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkpay.CheckAuditEntry) (string, error) {
@@ -342,7 +387,26 @@ func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkpay.Chec
 		LatencyMs:      entry.Result.LatencyMs,
 	}
 	m.rows = append(m.rows, rec)
+	m.events = append(m.events, checkpay.CheckAuditEvent{
+		ID:             rec.ID,
+		Kind:           checkpay.AuditKindPresentment,
+		RecordedAt:     rec.DecidedAt,
+		CorrelationID:  rec.CorrelationID,
+		RegisterItemID: rec.RegisterItemID,
+		Presentment: &checkpay.PresentmentAudit{
+			Decision:   rec.Decision,
+			Match:      rec.Match,
+			Exceptions: rec.Exceptions,
+			LatencyMs:  rec.LatencyMs,
+		},
+	})
 	return rec.ID, nil
+}
+
+func (m *memDecisions) ListCheckAudit(context.Context, string, string, string) ([]checkpay.CheckAuditEvent, error) {
+	out := make([]checkpay.CheckAuditEvent, len(m.events))
+	copy(out, m.events)
+	return out, nil
 }
 
 func (m *memDecisions) ListCheckDecisions(context.Context, string, string, string) ([]checkpay.RecordedDecision, error) {
@@ -352,6 +416,7 @@ func (m *memDecisions) ListCheckDecisions(context.Context, string, string, strin
 }
 
 func newTestService(reg *memRegister, log *memDecisions) *checkpay.Service {
+	reg.audit = log
 	return checkpay.NewService(
 		memAccounts{acct: &checkpay.Account{
 			ID:                 testAccountID,

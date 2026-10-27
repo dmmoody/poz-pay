@@ -26,7 +26,7 @@ type RegisterReader interface {
 // RegisterWriter persists upload batches and postings.
 type RegisterWriter interface {
 	InsertBatch(ctx context.Context, fiID, partyID string, items []UploadItem, payeeNorm func(string) string) (UploadBatchResult, error)
-	RecordPayment(ctx context.Context, fiID, accountID, checkNumber, correlationID string, paidAt time.Time) (Payment, error)
+	RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, error)
 }
 
 // PolicyResolver loads check decide policy for an FI/party.
@@ -34,10 +34,17 @@ type PolicyResolver interface {
 	ResolvePolicy(ctx context.Context, fiID, partyID string) (Policy, error)
 }
 
-// DecisionLog appends one row per decide and lists them by presented check.
+// AuditKindPresentment is a decide call on the check's audit stream.
+const AuditKindPresentment = "presentment"
+
+// AuditKindPosted is the paying system's settlement on that same stream.
+const AuditKindPosted = "posted"
+
+// DecisionLog appends presentments and lists the check's audit stream.
 type DecisionLog interface {
 	WriteCheckDecision(ctx context.Context, entry CheckAuditEntry) (string, error)
 	ListCheckDecisions(ctx context.Context, fiID, accountID, checkNumber string) ([]RecordedDecision, error)
+	ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber string) ([]CheckAuditEvent, error)
 }
 
 // CheckAuditEntry is one presentment attempt written to decision history.
@@ -92,6 +99,50 @@ type PostInput struct {
 	CheckNumber   string
 	CorrelationID string
 	PaidAt        time.Time
+	RawRequest    any
+}
+
+// PaymentRecord is the posting written with its audit event in one transaction.
+type PaymentRecord struct {
+	FIID          string
+	PartyID       string
+	AccountID     string
+	CheckNumber   string
+	CorrelationID string
+	PaidAt        time.Time
+	Request       any
+}
+
+// CheckAudit is every presentment and the posting for one check, oldest first.
+type CheckAudit struct {
+	CheckNumber    string            `json:"check_number"`
+	RegisterItemID string            `json:"register_item_id,omitempty"`
+	Events         []CheckAuditEvent `json:"events"`
+}
+
+// CheckAuditEvent is one row on the check's audit stream.
+type CheckAuditEvent struct {
+	ID             string            `json:"id"`
+	Kind           string            `json:"kind"`
+	RecordedAt     time.Time         `json:"recorded_at"`
+	CorrelationID  string            `json:"correlation_id,omitempty"`
+	RegisterItemID string            `json:"register_item_id,omitempty"`
+	Request        json.RawMessage   `json:"request"`
+	Presentment    *PresentmentAudit `json:"presentment,omitempty"`
+	Posted         *PostedAudit      `json:"posted,omitempty"`
+}
+
+// PresentmentAudit is the decide outcome stored on a presentment event.
+type PresentmentAudit struct {
+	Decision   string             `json:"decision"`
+	Match      *decide.Match      `json:"match"`
+	Exceptions []decide.Exception `json:"exceptions"`
+	LatencyMs  int64              `json:"latency_ms"`
+}
+
+// PostedAudit is the settlement stored on a posted event.
+type PostedAudit struct {
+	PaidAt time.Time `json:"paid_at"`
 }
 
 // UploadItem is a register line accepted by the service.
@@ -248,11 +299,20 @@ func (s *Service) Post(ctx context.Context, in PostInput) (Payment, error) {
 		return Payment{}, ErrPaidAtRequired
 	}
 
-	if err := s.requireAccount(ctx, in.FIID, in.AccountID); err != nil {
+	acct, err := s.requireAccount(ctx, in.FIID, in.AccountID)
+	if err != nil {
 		return Payment{}, err
 	}
 
-	payment, err := s.writer.RecordPayment(ctx, in.FIID, in.AccountID, in.CheckNumber, in.CorrelationID, in.PaidAt.UTC())
+	payment, err := s.writer.RecordPayment(ctx, PaymentRecord{
+		FIID:          in.FIID,
+		PartyID:       acct.PartyID,
+		AccountID:     acct.ID,
+		CheckNumber:   in.CheckNumber,
+		CorrelationID: in.CorrelationID,
+		PaidAt:        in.PaidAt.UTC(),
+		Request:       in.RawRequest,
+	})
 	if err != nil {
 		return Payment{}, err
 	}
@@ -267,7 +327,7 @@ func (s *Service) ListDecisions(ctx context.Context, fiID, accountID, checkNumbe
 	if checkNumber == "" {
 		return CheckHistory{}, ErrCheckNumberRequired
 	}
-	if err := s.requireAccount(ctx, fiID, accountID); err != nil {
+	if _, err := s.requireAccount(ctx, fiID, accountID); err != nil {
 		return CheckHistory{}, err
 	}
 
@@ -298,22 +358,53 @@ func (s *Service) ListDecisions(ctx context.Context, fiID, accountID, checkNumbe
 	return history, nil
 }
 
-func (s *Service) requireAccount(ctx context.Context, fiID, accountID string) error {
+// ListAudit returns presentments and the posting for one check, oldest recorded first.
+func (s *Service) ListAudit(ctx context.Context, fiID, accountID, checkNumber string) (CheckAudit, error) {
+	checkNumber = strings.TrimSpace(checkNumber)
+	if checkNumber == "" {
+		return CheckAudit{}, ErrCheckNumberRequired
+	}
+	if _, err := s.requireAccount(ctx, fiID, accountID); err != nil {
+		return CheckAudit{}, err
+	}
+
+	item, err := s.register.FindItem(ctx, fiID, accountID, checkNumber)
+	if err != nil {
+		return CheckAudit{}, err
+	}
+	events, err := s.decisions.ListCheckAudit(ctx, fiID, accountID, checkNumber)
+	if err != nil {
+		return CheckAudit{}, err
+	}
+	if events == nil {
+		events = []CheckAuditEvent{}
+	}
+	audit := CheckAudit{
+		CheckNumber: checkNumber,
+		Events:      events,
+	}
+	if item != nil {
+		audit.RegisterItemID = item.ID
+	}
+	return audit, nil
+}
+
+func (s *Service) requireAccount(ctx context.Context, fiID, accountID string) (*Account, error) {
 	ok, err := s.accounts.FIExists(ctx, fiID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if !ok {
-		return ErrFINotFound
+		return nil, ErrFINotFound
 	}
 	acct, err := s.accounts.GetAccount(ctx, fiID, accountID)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if acct == nil {
-		return ErrAccountNotFound
+		return nil, ErrAccountNotFound
 	}
-	return nil
+	return acct, nil
 }
 
 // Upload validates ownership and inserts a register batch.
