@@ -62,18 +62,16 @@ ACH example:
 
 #### Response `200`
 
-`decision`, `reason_code`, `exceptions[].code`, and `exceptions[].severity` are **closed codes** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch on those fields only.
+`decision`, `match` (`null` or `match.code` / `match.facts`), `exceptions[].code`, and `exceptions[].facts` keys are **closed** (see [exceptions.md](exceptions.md#closed-vocabulary-contract)). Branch the rail on `decision` and `exceptions` only. `match` is always present: the one artifact that authorized a `pay`, or `null`. There is no `reason_code`, `severity`, confidence score, or freeform `detail`.
 
 ```json
 {
   "decision": "return",
-  "reason_code": "CHECK_NOT_IN_REGISTER",
-  "reason": "Check number not found in register",
+  "match": null,
   "exceptions": [
     {
       "code": "CHECK_NOT_IN_REGISTER",
-      "severity": "hard",
-      "detail": "check_number=1001"
+      "facts": {"check_number": "1001"}
     }
   ],
   "correlation_id": "core-txn-abc",
@@ -81,19 +79,39 @@ ACH example:
 }
 ```
 
-Multi-fail soft example:
+Multi-mismatch example:
 
 ```json
 {
-  "decision": "review",
-  "reason_code": "AMOUNT_MISMATCH",
-  "reason": "One or more check fields do not match register",
+  "decision": "return",
+  "match": null,
   "exceptions": [
-    {"code": "AMOUNT_MISMATCH", "severity": "soft", "detail": "presented=10050 issued=10000"},
-    {"code": "PAYEE_MISMATCH", "severity": "soft", "detail": "presented=ACME issued=ACME SUPPLIES LLC"}
+    {
+      "code": "AMOUNT_MISMATCH",
+      "facts": {"presented_amount": 10050, "issued_amount": 10000}
+    },
+    {
+      "code": "PAYEE_MISMATCH",
+      "facts": {"presented_payee": "ACME", "issued_payee": "ACME SUPPLIES LLC"}
+    }
   ],
   "correlation_id": "core-txn-abc",
   "latency_ms": 3
+}
+```
+
+Clean pay names the register row. Field matches are not listed.
+
+```json
+{
+  "decision": "pay",
+  "match": {
+    "code": "REGISTER_MATCH",
+    "facts": {"register_item_id": "17171717-1717-1717-1717-171717171717"}
+  },
+  "exceptions": [],
+  "correlation_id": "core-txn-abc",
+  "latency_ms": 2
 }
 ```
 
@@ -111,6 +129,115 @@ Malformed body, unknown `rail`, missing rail payload, or unknown `fi_id`:
 ```
 
 Unknown account under a known FI is a **decide outcome** (`ACCOUNT_NOT_OURS`), not 404.
+
+Decide does not post the check. The same request may be sent again; each call appends decision history and, until a posting, returns the same `pay` for a clean match.
+
+### `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`
+
+Records that the paying system posted the item. Stores that system's `paid_at` once.
+
+```json
+{
+  "check_number": "1005",
+  "paid_at": "2026-10-26T17:44:00Z",
+  "correlation_id": "core-txn-abc"
+}
+```
+
+| Field | Required | Notes |
+|-------|----------|-------|
+| `check_number` | yes | Register key |
+| `paid_at` | yes | RFC3339 timestamp from the paying system. A repeat does not replace it |
+| `correlation_id` | no | Stored on the first post only |
+
+#### Response `201` (first post) / `200` (already posted)
+
+The body is the posting either way. A repeat returns the same `paid_at` and `correlation_id`. Status `201` means this call wrote them. Status `200` means they were already stored.
+
+```json
+{
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "check_number": "1005",
+  "paid_at": "2026-10-26T17:44:00Z",
+  "correlation_id": "core-txn-abc"
+}
+```
+
+| Status | When |
+|--------|------|
+| `404` `FI_NOT_FOUND` | Unknown `fi_id` |
+| `404` `ACCOUNT_NOT_FOUND` | Account not under the FI |
+| `404` `CHECK_NOT_IN_REGISTER` | No register row |
+| `409` `CHECK_VOIDED` | Only a voided row |
+
+### `GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/decisions`
+
+Every decide for that check, oldest first, plus the posting when `paid_at` is set. Empty `decisions` is `200` when the account exists and the check has never been presented.
+
+```json
+{
+  "check_number": "1005",
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "paid_at": null,
+  "decisions": [
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "decision": "pay",
+      "match": {
+        "code": "REGISTER_MATCH",
+        "facts": {"register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a"}
+      },
+      "exceptions": [],
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "decided_at": "2026-10-26T17:40:00Z",
+      "latency_ms": 2
+    }
+  ]
+}
+```
+
+`request` is the stored decide body for that attempt. The same `correlation_id` can appear on more than one row.
+
+### `GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/audit`
+
+One stream for the check, oldest recorded first. `kind` is `presentment` or `posted`. A presentment carries `presentment`. The posting carries `posted.paid_at` from the paying system. `recorded_at` is when this service stored the event. A repeated post does not add another `posted` row.
+
+```json
+{
+  "check_number": "1005",
+  "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+  "events": [
+    {
+      "id": "44444444-4444-4444-4444-444444444444",
+      "kind": "presentment",
+      "recorded_at": "2026-10-26T17:40:00Z",
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "presentment": {
+        "decision": "pay",
+        "match": {
+          "code": "REGISTER_MATCH",
+          "facts": {"register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a"}
+        },
+        "exceptions": [],
+        "latency_ms": 2
+      }
+    },
+    {
+      "id": "55555555-5555-5555-5555-555555555555",
+      "kind": "posted",
+      "recorded_at": "2026-10-26T17:44:01Z",
+      "correlation_id": "core-txn-abc",
+      "register_item_id": "1a1a1a1a-1a1a-1a1a-1a1a-1a1a1a1a1a1a",
+      "request": {},
+      "posted": {"paid_at": "2026-10-26T17:44:00Z"}
+    }
+  ]
+}
+```
 
 ---
 

@@ -6,22 +6,32 @@ Pipelines for the hot path. Order is contractual for the spike.
 
 ```text
 1. Resolve account by (fi_id, account_id)
-   - missing / wrong FI → hard ACCOUNT_NOT_OURS → return
-   - inactive → hard ACCOUNT_INACTIVE → return
+   - missing / wrong FI → ACCOUNT_NOT_OURS → return
+   - inactive → ACCOUNT_INACTIVE → return
 2. Lookup register item (fi_id, account_id, check_number) where not voided
-   - missing → hard CHECK_NOT_IN_REGISTER → return
-   - voided → hard CHECK_VOIDED → return
-   - already paid (if tracked) → hard CHECK_ALREADY_PAID → return
-3. Accumulate soft matches
+   - missing → CHECK_NOT_IN_REGISTER → return
+   - voided → CHECK_VOIDED → return
+   - posted (`paid_at` set) → CHECK_ALREADY_PAID → return
+   - register issue_date older than FI/party `max_age_days` (default 180) → CHECK_EXPIRED → return
+     (skipped when register has no issue_date)
+3. Accumulate field mismatches (list all that fail)
    - amount → AMOUNT_MISMATCH
    - payee → PAYEE_MISMATCH
    - issue date (if present + tolerance configured) → ISSUE_DATE_MISMATCH
 4. Decide
-   - any soft → review (spike default) unless FI/party check policy says return_on_mismatch
-   - none → pay
+   - any mismatch → `review`, or `return` when party/FI `return_on_mismatch` is true
+   - none → `pay` with `match` `REGISTER_MATCH` (`register_item_id`)
 ```
 
-Hard stops do **not** continue soft matching.
+Each call appends one `decision_audit` row (`check_number`, `register_item_id` when the register row resolved, request, decision). Calling decide again before the item is posted returns the same `pay` and adds another row.
+
+Gates stop before field matching. Field mismatches always list every failing check.
+
+## Posting
+
+`paid_at` is the paying system's settlement time, stored by `POST /v1/fis/{fi_id}/accounts/{account_id}/check-postings`. A repeated post returns the original `paid_at` and `paid_correlation_id`. After that, decide returns `CHECK_ALREADY_PAID`.
+
+`GET /v1/fis/{fi_id}/accounts/{account_id}/checks/{check_number}/audit` returns that check's presentment and posted events, oldest recorded first.
 
 ## ACH rail
 
@@ -29,8 +39,8 @@ Hard stops do **not** continue soft matching.
 1. Resolve account (same as check)
 2. Load party + FI ACH settings (approve mode)
 3. Active whitelist match for party (and account scope if set)?
-   - full match → pay (record reason WHITELIST_MATCH); skip rules unless FI flag force_rules_after_whitelist=true (default false)
-   - partial match (originator hits, amount/window/SEC fail) → accumulate soft exceptions; do not auto-pay
+   - full match → pay; skip rules unless FI flag force_rules_after_whitelist=true (default false)
+   - partial match (originator hits, amount/window/SEC fail) → accumulate exceptions; do not auto-pay
 4. Evaluate party rule_set (ordered by priority ascending)
    - first rule whose predicate matches and action ≠ continue → apply action and stop rules
    - action pay → pay
@@ -40,7 +50,7 @@ Hard stops do **not** continue soft matching.
 5. If no party terminating rule: evaluate FI rule_set the same way
 6. If still undecided: apply approve mode
    - approve_all → pay
-   - approve_unknown → pay if only “unknown” style softs; else review
+   - approve_unknown → pay if only “unknown” style findings; else review
    - manual_review → review (+ APPROVE_MODE_REVIEW)
    - strict → return (+ APPROVE_MODE_STRICT)
 ```

@@ -1,6 +1,6 @@
 $kind: "collection"
 name: poz-pay-check
-description: Check positive pay - health, decide, register upload
+description: Check positive pay - health, decide, posting, audit, register upload
 variables:
   - key: base_url
     value: 'http://localhost:8080'

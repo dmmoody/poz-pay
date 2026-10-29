@@ -1,5 +1,5 @@
 $kind: "http-example"
-name: review
+name: wash-return
 order: 1000
 request:
   url: '{{base_url}}/v1/decide'
@@ -14,21 +14,24 @@ response:
     type: json
     content: |-
       {
-        "decision": "review",
-        "reason_code": "AMOUNT_MISMATCH",
-        "reason": "One or more check fields do not match register",
+        "decision": "return",
+        "match": null,
         "exceptions": [
           {
             "code": "AMOUNT_MISMATCH",
-            "severity": "soft",
-            "detail": "presented=10050 issued=10000"
+            "facts": {
+              "presented_amount": 10050,
+              "issued_amount": 10000
+            }
           },
           {
             "code": "PAYEE_MISMATCH",
-            "severity": "soft",
-            "detail": "presented=ACME issued=ACME SUPPLIES LLC"
+            "facts": {
+              "presented_payee": "FRAUDSTER LLC",
+              "issued_payee": "ACME SUPPLIES LLC"
+            }
           }
         ],
-        "correlation_id": "postman-check-review",
+        "correlation_id": "postman-check-wash",
         "latency_ms": 2
       }

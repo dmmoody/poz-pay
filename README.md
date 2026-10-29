@@ -21,18 +21,16 @@ export DOCKER_HOST=unix://$HOME/.rd/docker.sock
 
 ```bash
 cp .env.example .env   # optional
-make up                # Postgres 18
-make migrate           # apply SQL migrations
-make docker-up         # Postgres + API (rebuild)
+make up                # Postgres + API, migrate, seed
 curl -s localhost:8080/healthz
 ```
 
 Postgres 18 mounts the volume at `/var/lib/postgresql` (not `.../data`).
 
-Local API against published Postgres:
+Host API against Docker Postgres only:
 
 ```bash
-make up migrate
+make db-up migrate
 make run
 ```
 
@@ -40,10 +38,10 @@ make run
 
 | Target | Purpose |
 |--------|---------|
-| `make up` | Start Postgres |
-| `make down` | Stop services (keep volume) |
-| `make docker-up` | Build/start Postgres + API |
-| `make docker-down` | Stop and remove volumes |
+| `make up` | Build/start stack, migrate, and seed |
+| `make down` | Stop stack (keep DB volume) |
+| `make destroy` | Stop stack and delete DB volume |
+| `make db-up` | Postgres only |
 | `make migrate` | Apply migrations |
 | `make migrate-down` | Roll back one migration |
 | `make migrate-version` | Show migration version |

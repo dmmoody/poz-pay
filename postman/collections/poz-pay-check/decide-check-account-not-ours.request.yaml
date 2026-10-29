@@ -1,0 +1,22 @@
+$kind: "http-request"
+name: decide-check-account-not-ours
+method: POST
+url: '{{base_url}}/v1/decide'
+order: 4950
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "rail": "check",
+      "fi_id": "{{fi_id}}",
+      "account_id": "00000000-0000-0000-0000-000000000001",
+      "correlation_id": "postman-check-not-ours",
+      "check": {
+        "check_number": "1001",
+        "amount": 10000,
+        "payee": "ACME SUPPLIES LLC"
+      }
+    }

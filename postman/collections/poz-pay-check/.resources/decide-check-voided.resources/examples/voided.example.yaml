@@ -1,0 +1,29 @@
+$kind: "http-example"
+name: voided
+order: 1000
+request:
+  url: '{{base_url}}/v1/decide'
+  method: POST
+response:
+  statusCode: 200
+  statusText: OK
+  headers:
+    - key: Content-Type
+      value: application/json
+  body:
+    type: json
+    content: |-
+      {
+        "decision": "return",
+        "match": null,
+        "exceptions": [
+          {
+            "code": "CHECK_VOIDED",
+            "facts": {
+              "check_number": "1003"
+            }
+          }
+        ],
+        "correlation_id": "postman-check-voided",
+        "latency_ms": 1
+      }

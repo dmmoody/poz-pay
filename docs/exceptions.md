@@ -1,4 +1,4 @@
-# Decisions, reasons, and exceptions
+# Decisions and exceptions
 
 ## Closed vocabulary contract
 
@@ -7,88 +7,89 @@ Codes are a **closed set**, owned by Postgres lookups and mirrored in the API:
 | Wire field | Lookup | Notes |
 |------------|--------|-------|
 | `decision` | `decision_codes` | `pay` \| `return` \| `review` |
-| `reason_code` | `reason_codes` | `OK` or any `exception_codes.code` |
+| `match` | `match_codes` when non-null | Always present. `null`, or one object when an artifact authorized `pay` |
+| `match.facts` | (per-code keys below) | Structured machine fields; omit when empty |
 | `exceptions[].code` | `exception_codes` | Machine exception token |
-| `exceptions[].severity` | `exception_severities` | `hard` \| `soft` |
+| `exceptions[].facts` | (per-code keys below) | Structured machine fields; omit when empty |
+
+There is **no** primary `reason_code` / `reason`, **no** `severity`, and **no** freeform `detail` scrape bait. The full *why* is `exceptions[]` (empty on clean pay).
 
 **Normative**
 
-1. Control flow uses codes (and severity) only — exact match on the token.
-2. `reason` / `detail` are non-normative human text; wording may change without a version bump.
+1. Control flow uses `decision`, `exceptions[].code`, and `exceptions[].facts` keys — exact match on tokens / keys. `match` is the authorizing artifact for a person or an audit row. Do not branch the rail on it.
+2. Fact **keys and JSON types** are closed per code (below). Adding a key is a docs + engine change.
 3. Adding a code is a schema + docs change (seed row in the lookup), not a silent server invent.
-4. Persist path: `decision_audit.decision` / `reason_code` are FK-enforced; `exceptions` JSONB must only contain codes from `exception_codes` (enforced in app on write for the spike).
-
-Ints / numeric aliases are **out of scope** unless a core integration requires a parallel mapped field later.
+4. Persist path: `decision_audit.decision` is FK-enforced; `exceptions` JSONB must only contain codes from `exception_codes` (enforced in app on write for the spike).
 
 ## Decision values
 
 | `decision` | Meaning |
 |------------|---------|
 | `pay` | Allow the item |
-| `return` | Hard decline / return |
+| `return` | Decline / return |
 | `review` | Hold for human (or core) review |
 
-Overall decision is derived from exceptions + rail policy (see [decision-order.md](decision-order.md)). Rough rule:
+Overall decision follows the rail pipeline (see [decision-order.md](decision-order.md)). Check summary:
 
-1. Any **hard** exception that maps to return → `return`
-2. Else any **soft** exception under review policy → `review`
-3. Else → `pay`
+1. Gate failure (account / register / expired) → `return` with that code
+2. Else any field mismatches → `review`, or `return` when `return_on_mismatch`
+3. Else → `pay` with `exceptions: []` and `match` = `REGISTER_MATCH` (`register_item_id`)
 
-`reason_code` / `reason` describe the **primary** outcome (first hard, else highest-severity soft, else `OK`).
-
-## Exception severity
-
-| `severity` | Behavior |
-|------------|----------|
-| `hard` | First-fail: stop further matching for that rail stage; still return this exception in `exceptions[]` |
-| `soft` | Accumulate: continue evaluating; all soft failures are returned |
-
-## Exception codes
+## Exception codes and facts
 
 ### Shared
 
-| Code | Severity | When |
-|------|----------|------|
-| `ACCOUNT_NOT_OURS` | hard | Account missing or `fi_id` mismatch |
-| `ACCOUNT_INACTIVE` | hard | Account exists but not enabled for positive pay |
-| `OK` | — | Reason only; not used as an exception entry |
+| Code | When | Facts |
+|------|------|-------|
+| `ACCOUNT_NOT_OURS` | Account missing or `fi_id` mismatch | *(none)* |
+| `ACCOUNT_INACTIVE` | Account exists but not enabled for positive pay | *(none)* |
 
 ### Check rail
 
-| Code | Severity | When |
-|------|----------|------|
-| `CHECK_NOT_IN_REGISTER` | hard | No active register item for `(fi_id, account_id, check_number)` |
-| `CHECK_VOIDED` | hard | Register item marked void |
-| `CHECK_ALREADY_PAID` | hard | Register item already marked paid/presented (spike: optional flag) |
-| `AMOUNT_MISMATCH` | soft | Presented amount ≠ issued amount |
-| `PAYEE_MISMATCH` | soft | Payee does not match (normalized compare) |
-| `ISSUE_DATE_MISMATCH` | soft | Issue/effective date outside allowed tolerance (if configured) |
+| Code | When | Facts |
+|------|------|-------|
+| `CHECK_NOT_IN_REGISTER` | No active register item | `check_number` (string) |
+| `CHECK_VOIDED` | Register item marked void | `check_number` (string) |
+| `CHECK_ALREADY_PAID` | Register item posted (`paid_at` set). A repeated decide before post is another `pay` row, not this code | `check_number` (string) |
+| `CHECK_EXPIRED` | Past FI/party `max_age_days` (default 180) | `check_number` (string), `issue_date` (YYYY-MM-DD), `age_days` (int), `max_age_days` (int) |
+| `AMOUNT_MISMATCH` | Presented amount ≠ issued amount | `presented_amount` (int, minor units), `issued_amount` (int) |
+| `PAYEE_MISMATCH` | Payee does not match (normalized) | `presented_payee` (string), `issued_payee` (string) |
+| `ISSUE_DATE_MISMATCH` | Presented vs issued issue date | `presented_issue_date` (YYYY-MM-DD), `issued_issue_date` (YYYY-MM-DD) |
+
+### Match codes
+
+Always one JSON field. `null` on `return` and `review`. An object only when something authorized `pay`.
+
+| Code | When | Facts |
+|------|------|-------|
+| `REGISTER_MATCH` | Clean check pay | `register_item_id` (string, register row id) |
 
 ### ACH rail
 
-| Code | Severity | When |
-|------|----------|------|
-| `ORIGINATOR_DENIED` | hard | Rule action `return` for this originator / predicate |
-| `ORIGINATOR_UNKNOWN` | soft | Not on whitelist and no terminating allow rule |
-| `AMOUNT_OUT_OF_BOUNDS` | soft | Outside whitelist or rule amount band |
-| `OUTSIDE_TIME_WINDOW` | soft | Outside allowed window |
-| `SEC_NOT_ALLOWED` | soft | SEC code not permitted by matching rule/whitelist |
-| `DEBIT_CREDIT_MISMATCH` | soft | Wrong debit/credit vs allowed |
-| `RULE_RETURN` | hard | Explicit rule action `return` |
-| `RULE_REVIEW` | soft | Explicit rule action `review` |
-| `APPROVE_MODE_REVIEW` | soft | Fell through to approve mode `manual_review` |
-| `APPROVE_MODE_STRICT` | hard | Fell through to approve mode `strict` |
+| Code | When | Facts |
+|------|------|-------|
+| `ORIGINATOR_DENIED` | Rule action `return` | *(TBD with ACH)* |
+| `ORIGINATOR_UNKNOWN` | Not on whitelist | *(TBD)* |
+| `AMOUNT_OUT_OF_BOUNDS` | Outside amount band | *(TBD)* |
+| `OUTSIDE_TIME_WINDOW` | Outside allowed window | *(TBD)* |
+| `SEC_NOT_ALLOWED` | SEC not permitted | *(TBD)* |
+| `DEBIT_CREDIT_MISMATCH` | Wrong debit/credit | *(TBD)* |
+| `RULE_RETURN` | Explicit rule `return` | *(TBD)* |
+| `RULE_REVIEW` | Explicit rule `review` | *(TBD)* |
+| `APPROVE_MODE_REVIEW` | Approve mode `manual_review` | *(TBD)* |
+| `APPROVE_MODE_STRICT` | Approve mode `strict` | *(TBD)* |
 
 ## Response shape (exception object)
 
 ```json
 {
   "code": "AMOUNT_MISMATCH",
-  "severity": "soft",
-  "detail": "presented=10050 issued=10000"
+  "facts": {
+    "presented_amount": 10050,
+    "issued_amount": 10000
+  }
 }
 ```
 
 - `code` — stable machine code (lookup-backed in DB)
-- `severity` — `hard` | `soft`
-- `detail` — short human/debug string; no secrets; safe to log
+- `facts` — closed key/value object for that code; omit when empty

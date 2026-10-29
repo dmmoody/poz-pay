@@ -1,11 +1,13 @@
 package checkpay
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/decide"
 )
+
+// DefaultMaxAgeDays is the UCC-aligned stale window (~6 months) when policy omits max age.
+const DefaultMaxAgeDays = 180
 
 // Account is the resolved account for decide (tenant slice).
 type Account struct {
@@ -18,13 +20,15 @@ type Account struct {
 
 // RegisterItem is an issued check row used for matching.
 type RegisterItem struct {
-	CheckNumber     string
-	Amount          int64
-	Payee           string
-	PayeeNormalized string
-	IssueDate       *time.Time // date-only; wall date in UTC noon or date truncated
-	VoidedAt        *time.Time
-	PaidAt          *time.Time
+	ID                string
+	CheckNumber       string
+	Amount            int64
+	Payee             string
+	PayeeNormalized   string
+	IssueDate         *time.Time // date-only; wall date in UTC noon or date truncated
+	VoidedAt          *time.Time
+	PaidAt            *time.Time
+	PaidCorrelationID string
 }
 
 // PresentedCheck is the inbound presented item.
@@ -35,36 +39,79 @@ type PresentedCheck struct {
 	IssueDate   *time.Time // optional
 }
 
+// Policy controls check decide outcomes (FI/party check settings).
+type Policy struct {
+	// ReturnOnMismatch maps field mismatches to decision return (wash theater / strict).
+	ReturnOnMismatch bool
+	// MaxAgeDays is days after register issue_date before CHECK_EXPIRED.
+	// <=0 means DefaultMaxAgeDays (180).
+	MaxAgeDays int
+}
+
+func (p Policy) effectiveMaxAgeDays() int {
+	if p.MaxAgeDays <= 0 {
+		return DefaultMaxAgeDays
+	}
+	return p.MaxAgeDays
+}
+
 // EvaluateCheck runs the contractual check pipeline against an already-resolved
 // account and optional register item (nil = not found / not active).
 //
+// asOf is the decide instant (UTC); zero means time.Now().UTC().
+//
 // Voided/paid items should be passed in when found including voided rows so
-// hard CHECK_VOIDED / CHECK_ALREADY_PAID can fire; callers that only query
+// CHECK_VOIDED / CHECK_ALREADY_PAID can fire; callers that only query
 // active rows pass nil for missing → CHECK_NOT_IN_REGISTER.
-func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck) decide.Result {
+func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, policy Policy, asOf time.Time) decide.Result {
+	if asOf.IsZero() {
+		asOf = time.Now().UTC()
+	}
+
 	if acct == nil || acct.FIID == "" || acct.ID == "" {
-		return decide.Hard(decide.CodeAccountNotOurs, "account not found")
+		return decide.Hard(decide.CodeAccountNotOurs, nil)
 	}
 	if !acct.Active || !acct.PositivePayEnabled {
-		return decide.Hard(decide.CodeAccountInactive, "account inactive or positive pay disabled")
+		return decide.Hard(decide.CodeAccountInactive, nil)
 	}
 
 	if item == nil {
-		return decide.Hard(decide.CodeCheckNotInRegister, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckNotInRegister, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
 	}
 	if item.VoidedAt != nil {
-		return decide.Hard(decide.CodeCheckVoided, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckVoided, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
 	}
 	if item.PaidAt != nil {
-		return decide.Hard(decide.CodeCheckAlreadyPaid, fmt.Sprintf("check_number=%s", presented.CheckNumber))
+		return decide.Hard(decide.CodeCheckAlreadyPaid, decide.Facts{
+			"check_number": presented.CheckNumber,
+		})
+	}
+
+	if item.IssueDate != nil {
+		maxAge := policy.effectiveMaxAgeDays()
+		age := calendarDaysBetween(*item.IssueDate, asOf)
+		if age > maxAge {
+			return decide.Hard(decide.CodeCheckExpired, decide.Facts{
+				"check_number": presented.CheckNumber,
+				"issue_date":   truncateDateUTC(*item.IssueDate).Format("2006-01-02"),
+				"age_days":     age,
+				"max_age_days": maxAge,
+			})
+		}
 	}
 
 	var excs []decide.Exception
 	if presented.Amount != item.Amount {
 		excs = append(excs, decide.Exception{
-			Code:     decide.CodeAmountMismatch,
-			Severity: decide.SeveritySoft,
-			Detail:   fmt.Sprintf("presented=%d issued=%d", presented.Amount, item.Amount),
+			Code: decide.CodeAmountMismatch,
+			Facts: decide.Facts{
+				"presented_amount": presented.Amount,
+				"issued_amount":    item.Amount,
+			},
 		})
 	}
 
@@ -75,9 +122,11 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck) 
 	}
 	if presentedPayee != issuedPayee {
 		excs = append(excs, decide.Exception{
-			Code:     decide.CodePayeeMismatch,
-			Severity: decide.SeveritySoft,
-			Detail:   fmt.Sprintf("presented=%s issued=%s", presentedPayee, issuedPayee),
+			Code: decide.CodePayeeMismatch,
+			Facts: decide.Facts{
+				"presented_payee": presentedPayee,
+				"issued_payee":    issuedPayee,
+			},
 		})
 	}
 
@@ -86,22 +135,41 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck) 
 		i := truncateDateUTC(*item.IssueDate)
 		if !p.Equal(i) {
 			excs = append(excs, decide.Exception{
-				Code:     decide.CodeIssueDateMismatch,
-				Severity: decide.SeveritySoft,
-				Detail:   fmt.Sprintf("presented=%s issued=%s", p.Format("2006-01-02"), i.Format("2006-01-02")),
+				Code: decide.CodeIssueDateMismatch,
+				Facts: decide.Facts{
+					"presented_issue_date": p.Format("2006-01-02"),
+					"issued_issue_date":    i.Format("2006-01-02"),
+				},
 			})
 		}
 	}
 
 	if len(excs) == 0 {
-		return decide.NewResult(decide.DecisionPay, decide.ReasonOK, nil)
+		result := decide.NewResult(decide.DecisionPay, nil)
+		result.Match = &decide.Match{
+			Code: decide.CodeRegisterMatch,
+			Facts: decide.Facts{
+				"register_item_id": item.ID,
+			},
+		}
+		return result
 	}
 
-	// Spike default: any soft mismatch → review; primary reason = first soft code.
-	return decide.NewResult(decide.DecisionReview, excs[0].Code, excs)
+	decision := decide.DecisionReview
+	if policy.ReturnOnMismatch {
+		decision = decide.DecisionReturn
+	}
+	return decide.NewResult(decision, excs)
 }
 
 func truncateDateUTC(t time.Time) time.Time {
 	u := t.UTC()
 	return time.Date(u.Year(), u.Month(), u.Day(), 0, 0, 0, 0, time.UTC)
+}
+
+// calendarDaysBetween is whole UTC calendar days from start date to asOf date (can be negative).
+func calendarDaysBetween(start, asOf time.Time) int {
+	s := truncateDateUTC(start)
+	a := truncateDateUTC(asOf)
+	return int(a.Sub(s) / (24 * time.Hour))
 }

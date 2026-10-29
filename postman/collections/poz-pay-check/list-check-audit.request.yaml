@@ -1,0 +1,13 @@
+$kind: "http-request"
+name: list-check-audit
+method: GET
+url: '{{base_url}}/v1/fis/:fi_id/accounts/:account_id/checks/:check_number/audit'
+order: 4750
+pathVariables:
+  - key: fi_id
+    value: '{{fi_id}}'
+  - key: account_id
+    value: '{{account_id}}'
+  - key: check_number
+    value: '1005'
+examples: './.resources/list-check-audit.resources/examples'

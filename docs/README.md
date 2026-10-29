@@ -6,7 +6,7 @@ Spike contracts and domain specs. Implement against these; change the docs when 
 |-----|---------|
 | [tenancy.md](tenancy.md) | FI → party → account hierarchy |
 | [decision-api.md](decision-api.md) | `POST /v1/decide` + admin/setup HTTP contracts |
-| [exceptions.md](exceptions.md) | Decision/reason/exception codes and severity |
+| [exceptions.md](exceptions.md) | Decision and exception codes |
 | [decision-order.md](decision-order.md) | Check and ACH evaluation pipelines |
 | [check-positive-pay.md](check-positive-pay.md) | Register upload and check matching |
 | [ach-positive-pay.md](ach-positive-pay.md) | Rules, whitelist, approve modes, learning |
@@ -22,9 +22,10 @@ Spike contracts and domain specs. Implement against these; change the docs when 
 
 ### Closed vocabulary (normative)
 
-Decision-engine results use **stable opaque codes** from DB lookup tables (`decision_codes`, `exception_codes`, `reason_codes`, `approve_modes`, …). See [exceptions.md](exceptions.md#closed-vocabulary-contract).
+Decision-engine results use **stable opaque codes** from DB lookup tables (`decision_codes`, `exception_codes`, `match_codes`, `approve_modes`, …). See [exceptions.md](exceptions.md#closed-vocabulary-contract).
 
-- Clients and cores **MUST** branch only on `decision`, `reason_code`, and `exceptions[].code` / `exceptions[].severity`.
-- `reason` and `exceptions[].detail` are **display/debug only** — never for control flow.
+- Clients and cores **MUST** branch only on `decision`, `exceptions[].code`, and documented `exceptions[].facts` keys.
+- Empty `exceptions` with `decision=pay` means clean allow. `match` is always present: one artifact when that artifact authorized the pay, `null` otherwise.
+- Do **not** invent freeform prose fields for machine parsing.
 - Servers **MUST NOT** invent ad-hoc codes; new codes require a lookup migration.
 - Go (and any client) should use typed constants / generated enums matching those tables — not free-form string compares on prose.

@@ -1,0 +1,22 @@
+$kind: "http-request"
+name: post-check
+method: POST
+url: '{{base_url}}/v1/fis/:fi_id/accounts/:account_id/check-postings'
+order: 4700
+headers:
+  - key: Content-Type
+    value: application/json
+pathVariables:
+  - key: fi_id
+    value: '{{fi_id}}'
+  - key: account_id
+    value: '{{account_id}}'
+body:
+  type: json
+  content: |-
+    {
+      "check_number": "1005",
+      "paid_at": "2026-10-26T18:00:00Z",
+      "correlation_id": "postman-check-1005-post"
+    }
+examples: './.resources/post-check.resources/examples'
