@@ -2,7 +2,10 @@ module github.com/dmmoody/poz-pay
 
 go 1.27.2
 
-require github.com/jackc/pgx/v5 v5.11.0
+require (
+	github.com/jackc/pgx/v5 v5.11.0
+	github.com/rabbitmq/amqp091-go v1.10.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect
