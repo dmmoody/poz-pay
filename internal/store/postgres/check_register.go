@@ -100,25 +100,7 @@ func (s *CheckRegisterStore) InsertBatch(
 	out.BatchID = batchID
 
 	for i, it := range items {
-		var voided any
-		if it.Void {
-			voided = time.Now().UTC()
-		}
-		var issue any
-		if it.IssueDate != nil {
-			issue = it.IssueDate.UTC()
-		}
-		_, err := tx.ExecContext(ctx, `
-			INSERT INTO check_register_items (
-				batch_id, fi_id, party_id, account_id,
-				check_number, amount, payee, payee_normalized, issue_date, voided_at
-			) VALUES (
-				$1::uuid, $2::uuid, $3::uuid, $4::uuid,
-				$5, $6, $7, $8, $9, $10
-			)
-		`, batchID, fiID, partyID, it.AccountID,
-			it.CheckNumber, it.Amount, it.Payee, payeeNorm(it.Payee), issue, voided)
-		if err != nil {
+		if err := insertRegisterItem(ctx, tx, batchID, fiID, partyID, it, payeeNorm(it.Payee)); err != nil {
 			out.Errors = append(out.Errors, checkpay.UploadItemError{
 				Index:   i,
 				Message: err.Error(),
@@ -216,6 +198,35 @@ func (s *CheckRegisterStore) RecordPayment(ctx context.Context, rec checkpay.Pay
 		PaidAt:         posted.UTC(),
 		CorrelationID:  rec.CorrelationID,
 	}, nil
+}
+
+func insertRegisterItem(
+	ctx context.Context,
+	tx *sql.Tx,
+	batchID, fiID, partyID string,
+	it checkpay.UploadItem,
+	payeeNormalized string,
+) error {
+	var voided any
+	if it.Void {
+		voided = time.Now().UTC()
+	}
+	// Calendar date as text so the session TimeZone cannot shift the day.
+	var issue any
+	if it.IssueDate != nil {
+		issue = it.IssueDate.UTC().Format("2006-01-02")
+	}
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO check_register_items (
+			batch_id, fi_id, party_id, account_id,
+			check_number, amount, payee, payee_normalized, issue_date, voided_at
+		) VALUES (
+			$1::uuid, $2::uuid, $3::uuid, $4::uuid,
+			$5, $6, $7, $8, $9::date, $10
+		)
+	`, batchID, fiID, partyID, it.AccountID,
+		it.CheckNumber, it.Amount, it.Payee, payeeNormalized, issue, voided)
+	return err
 }
 
 var (
