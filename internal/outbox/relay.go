@@ -11,11 +11,23 @@ import (
 	"github.com/dmmoody/poz-pay/internal/store"
 )
 
+const (
+	// maxAttempts is how many failed publishes a row gets before the relay
+	// leaves it unpublished. A later row can still be claimed.
+	maxAttempts = 8
+
+	// claimLease hides a claimed row from a second relay. It is longer than
+	// one broker confirm. A crash before mark-published makes the row due again.
+	claimLease = 30 * time.Second
+
+	backoffBase = time.Second
+	backoffCap  = time.Minute
+)
+
 // Message is one unpublished broker payload.
 type Message = store.Message
 
-// Relay polls the store and publishes. One failed publish stops the batch so
-// a broker outage does not spin on every pending row; the next tick retries.
+// Relay claims due rows and publishes them.
 type Relay struct {
 	store    store.Outbox
 	pub      broker.Publisher
@@ -39,7 +51,7 @@ func (r *Relay) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			// The caller already cancelled. A short independent timeout lets the
-			// last polled batch leave the database if the broker is still up.
+			// last claimed batch leave the database if the broker is still up.
 			flushCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			r.publishPending(flushCtx)
 			cancel()
@@ -51,27 +63,66 @@ func (r *Relay) Run(ctx context.Context) {
 }
 
 func (r *Relay) publishPending(ctx context.Context) {
-	msgs, err := r.store.Pending(ctx, r.batch)
+	msgs, err := r.store.Claim(ctx, r.batch, claimLease, maxAttempts)
 	if err != nil {
-		log.Printf("outbox: list: %v", err)
+		log.Printf("outbox: claim: %v", err)
 		return
 	}
-	for _, msg := range msgs {
+	for i, msg := range msgs {
 		if err := ctx.Err(); err != nil {
+			r.release(msgs[i:])
 			return
 		}
 		if err := r.pub.Publish(ctx, msg.Topic, msg.Body); err != nil {
 			log.Printf("outbox: publish %s: %v", msg.ID, err)
-			if recErr := r.store.RecordFailure(ctx, msg.ID, err.Error()); recErr != nil {
-				log.Printf("outbox: record failure %s: %v", msg.ID, recErr)
-			}
+			r.recordFailure(msg, err)
+			r.release(msgs[i+1:])
 			return
 		}
 		if err := r.store.MarkPublished(ctx, msg.ID); err != nil {
-			// The broker already has the message. Ingest is idempotent, so the
-			// next tick may deliver a duplicate.
+			// The broker already has the message. Ingest is idempotent, so a
+			// later claim may deliver a duplicate once the lease expires.
 			log.Printf("outbox: mark published %s: %v", msg.ID, err)
+			r.release(msgs[i+1:])
 			return
 		}
 	}
+}
+
+func (r *Relay) recordFailure(msg Message, cause error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	retryAt := time.Now().Add(retryAfter(msg.Attempts))
+	if err := r.store.RecordFailure(ctx, msg.ID, cause.Error(), retryAt); err != nil {
+		log.Printf("outbox: record failure %s: %v", msg.ID, err)
+	}
+}
+
+func (r *Relay) release(msgs []Message) {
+	if len(msgs) == 0 {
+		return
+	}
+	ids := make([]string, len(msgs))
+	for i, msg := range msgs {
+		ids[i] = msg.ID
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := r.store.Release(ctx, ids); err != nil {
+		log.Printf("outbox: release: %v", err)
+	}
+}
+
+func retryAfter(attempts int) time.Duration {
+	if attempts < 0 {
+		attempts = 0
+	}
+	if attempts >= 6 {
+		return backoffCap
+	}
+	d := backoffBase << attempts
+	if d > backoffCap {
+		return backoffCap
+	}
+	return d
 }

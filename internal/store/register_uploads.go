@@ -210,12 +210,7 @@ func (t recordTx) SetBytes(ctx context.Context, id string, size int64, sum []byt
 }
 
 func (t recordTx) InsertMessage(ctx context.Context, topic string, payload []byte) error {
-	if _, err := t.tx.ExecContext(ctx, `
-		INSERT INTO message_outbox (topic, payload) VALUES ($1, $2::jsonb)
-	`, topic, string(payload)); err != nil {
-		return fmt.Errorf("insert outbox: %w", err)
-	}
-	return nil
+	return InsertMessage(ctx, t.tx, topic, payload)
 }
 
 func (t recordTx) LockIntake(ctx context.Context, id string) (IntakeRow, error) {
