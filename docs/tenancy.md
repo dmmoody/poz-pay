@@ -12,7 +12,7 @@ financial_institution (FI)
 
 | Entity | Grain | Notes |
 |--------|-------|-------|
-| `financial_institutions` | One FI | Tenant root; all rows that matter carry `fi_id` |
+| `financial_institutions` | One FI | Tenant root; all rows that matter carry `fi_id`. `routing_number` is the ABA routing transit number when the institution has one. CSV check-register intake requires it |
 | `parties` | One customer/org under an FI | Typed via lookup `party_types` |
 | `accounts` | One demand/deposit (or similar) account | Belongs to exactly one party; `fi_id` denormalized for hot-path filters |
 
