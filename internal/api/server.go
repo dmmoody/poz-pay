@@ -18,6 +18,10 @@ func NewServer(addr string, handlers *Handlers) *Server {
 			Addr:              addr,
 			Handler:           NewRouter(handlers),
 			ReadHeaderTimeout: 5 * time.Second,
+			// Large CSV bodies are capped by the handler. This bounds a stalled client.
+			ReadTimeout:  5 * time.Minute,
+			WriteTimeout: time.Minute,
+			IdleTimeout:  2 * time.Minute,
 		},
 	}
 }
