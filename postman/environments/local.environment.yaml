@@ -19,4 +19,4 @@ values:
     value: '22222222-2222-2222-2222-222222222222'
     enabled: true
     type: default
-    description: Seed Acme Operating account
+    description: Acme Operating. Checks 1001-1006. Do not point this at the treasury sweep account.

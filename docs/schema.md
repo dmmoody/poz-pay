@@ -1,6 +1,6 @@
 # Schema
 
-Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../migrations/).
+Postgres 18, shared multi-tenant schema. Migrations under [`internal/store/migrations/`](../internal/store/migrations/).
 
 ## Migration order
 
@@ -19,6 +19,8 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 | 11 | decision_match | `match_codes` + nullable `decision_audit.match` |
 | 12 | check_presentment_history | `decision_audit.check_number` + `register_item_id`; `paid_correlation_id` on register items |
 | 13 | check_audit_kind | `check_audit_kinds`; `decision_audit.kind` + `paid_at` so presentment and posted share one stream |
+| 14 | check_register_csv | CSV intake blobs, rejection codes, 9-digit routing number, transactional outbox |
+| 15 | outbox_retry | `message_outbox.available_at` so a claim can lease a row and a failure can back off |
 
 ## Integrity patterns
 
@@ -27,6 +29,8 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 - Lookups + FKs for all stable codes (no free-form decision/exception enums).
 - API `decision`, `match` codes, and exception codes, plus per-code `facts` keys, are that closed vocabulary.
 - Check register: unique `(fi_id, account_id, check_number)` where `voided_at IS NULL`.
+- `financial_institutions.routing_number`, when set, is 9 digits and unique. CSV intake copies that stored value and rejects a row that does not match it.
+- CSV upload: one `check_register_uploads` row per file. Bytes live in `check_register_upload_blobs` (ordered chunks) so a large file is not one value. `message_outbox` is the wake-up for the broker; the upload row remains the source of truth if the broker is down. A transaction inserts that wake-up through one statement in the store. The relay leases a due row, publishes it, then marks it published or sets `available_at` to a backoff. After 8 failed publishes the row stays unpublished and is no longer claimed. Ingest commits in batches and resumes from `rows_processed`. A failed file keeps the rows already accepted.
 - Rule sets: at most one enabled FI set per FI; one enabled party set per party.
 - `decision_audit` / `approvals`: append-oriented; `ON DELETE RESTRICT` on money-path parents. Check rail rows require `check_number`. One row per presentment or posting (`kind`).
 - `check_register_items.paid_at` is the paying system's settlement time. `paid_correlation_id` is set only together with `paid_at`, and only by the first post.
@@ -34,6 +38,8 @@ Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../mig
 ## Hot-path indexes
 
 - `check_register_items (fi_id, account_id, check_number)`
+- `check_register_uploads (fi_id, party_id, received_at DESC)`
+- `message_outbox (created_at)` where `published_at IS NULL`. Due rows also have `available_at <= now()` and `attempts` under the relay cap.
 - `decision_audit (fi_id, account_id, check_number, decided_at, id)` where `rail = 'check'`
 - `ach_whitelist_entries (fi_id, party_id, originator_id)` where `status = 'active'`
 - `rules (rule_set_id, priority)` where enabled

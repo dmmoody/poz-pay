@@ -12,12 +12,16 @@ type Server struct {
 }
 
 // NewServer wires the router and timeouts. addr example: ":8080".
-func NewServer(addr string, handlers *Handlers) *Server {
+func NewServer(addr string, routes Routes) *Server {
 	return &Server{
 		httpServer: &http.Server{
 			Addr:              addr,
-			Handler:           NewRouter(handlers),
+			Handler:           NewRouter(routes),
 			ReadHeaderTimeout: 5 * time.Second,
+			// Large CSV bodies are capped by the handler. This bounds a stalled client.
+			ReadTimeout:  5 * time.Minute,
+			WriteTimeout: time.Minute,
+			IdleTimeout:  2 * time.Minute,
 		},
 	}
 }

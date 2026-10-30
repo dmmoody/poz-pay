@@ -1,6 +1,6 @@
 $kind: "collection"
 name: poz-pay-check
-description: Check positive pay - health, decide, posting, audit, register upload
+description: Check positive pay - health, decide, posting, audit, JSON and CSV register upload
 variables:
   - key: base_url
     value: 'http://localhost:8080'
@@ -10,3 +10,5 @@ variables:
     value: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'
   - key: account_id
     value: '22222222-2222-2222-2222-222222222222'
+  - key: upload_id
+    value: '44444444-4444-4444-4444-444444444444'

@@ -2,16 +2,27 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/api"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/store/postgres"
+	decisionhttp "github.com/dmmoody/poz-pay/internal/api/checkdecision"
+	postinghttp "github.com/dmmoody/poz-pay/internal/api/checkposting"
+	"github.com/dmmoody/poz-pay/internal/api/checkregister"
+	"github.com/dmmoody/poz-pay/internal/api/health"
+	"github.com/dmmoody/poz-pay/internal/broker"
+	"github.com/dmmoody/poz-pay/internal/checkdecision"
+	"github.com/dmmoody/poz-pay/internal/checkposting"
+	"github.com/dmmoody/poz-pay/internal/outbox"
+	"github.com/dmmoody/poz-pay/internal/registerbatch"
+	"github.com/dmmoody/poz-pay/internal/registerupload"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func main() {
@@ -20,23 +31,58 @@ func main() {
 	if dbURL == "" {
 		log.Fatal("DATABASE_URL is required")
 	}
+	rabbitURL := os.Getenv("RABBITMQ_URL")
+	if rabbitURL == "" {
+		log.Fatal("RABBITMQ_URL is required")
+	}
+	maxUpload := envInt64("CHECK_REGISTER_MAX_UPLOAD_BYTES", registerupload.DefaultMaxUploadBytes)
 
 	ctx := context.Background()
-	db, err := postgres.Open(ctx, dbURL)
+	db, err := store.Open(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
 	defer db.Close()
 
-	tenants := postgres.NewTenantStore(db)
-	registers := postgres.NewCheckRegisterStore(db)
-	checkSettings := postgres.NewCheckSettingsStore(db)
-	audits := postgres.NewAuditStore(db)
-	checks := checkpay.NewService(tenants, registers, registers, checkSettings, audits)
+	// RabbitMQ is the broker in this process.
+	broker, err := broker.New(rabbitURL, broker.Topology{
+		Exchange:    "pozpay.events",
+		Queue:       "pozpay.check-register.ingest",
+		RoutingKeys: []string{registerupload.TopicUploadAccepted},
+	})
+	if err != nil {
+		log.Fatalf("rabbitmq: %v", err)
+	}
+	defer broker.Close()
 
-	srv := api.NewServer(addr, &api.Handlers{
-		Checks: checks,
-		DB:     db,
+	tenants := store.NewTenants(db)
+	registers := store.NewCheckRegister(db)
+	checkSettings := store.NewCheckSettings(db)
+	audits := store.NewCheckAudit(db)
+	decisions := checkdecision.NewService(tenants, registers, checkSettings, audits)
+	postings := checkposting.NewService(tenants, registers)
+	batches := registerbatch.NewService(tenants, registers)
+	uploads := registerupload.NewService(tenants, store.NewRegisterUploads(db), maxUpload)
+	relay := outbox.NewRelay(store.NewOutbox(db), broker, time.Second)
+
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	defer stopWorkers()
+	go func() {
+		if err := registerupload.Consume(workerCtx, broker, uploads); err != nil && !errors.Is(err, context.Canceled) {
+			log.Fatalf("ingest: %v", err)
+		}
+	}()
+	go relay.Run(workerCtx)
+
+	srv := api.NewServer(addr, api.Routes{
+		Health:    health.Handler{DB: db},
+		Decisions: decisionhttp.Handler{Decisions: decisions},
+		Postings:  postinghttp.Handler{Postings: postings},
+		Registers: checkregister.Handler{
+			Batches:        batches,
+			Uploads:        uploads,
+			MaxUploadBytes: maxUpload,
+		},
 	})
 
 	go func() {
@@ -50,6 +96,7 @@ func main() {
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 
+	stopWorkers()
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -62,4 +109,16 @@ func envOr(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func envInt64(key string, fallback int64) int64 {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n <= 0 {
+		log.Fatalf("%s must be a positive integer", key)
+	}
+	return n
 }

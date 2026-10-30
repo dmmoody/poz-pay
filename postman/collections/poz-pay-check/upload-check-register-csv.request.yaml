@@ -1,0 +1,20 @@
+$kind: "http-request"
+url: '{{base_url}}/v1/fis/:fi_id/parties/:party_id/check-registers'
+method: POST
+order: 5100
+headers:
+  - key: Content-Type
+    value: multipart/form-data
+pathVariables:
+  - key: fi_id
+    value: '{{fi_id}}'
+  - key: party_id
+    value: '{{party_id}}'
+body:
+  type: formdata
+  content:
+    - key: file
+      type: file
+      src: samples/check-registers/acme-operating.csv
+      contentType: text/csv
+examples: './.resources/upload-check-register-csv.resources/examples'
