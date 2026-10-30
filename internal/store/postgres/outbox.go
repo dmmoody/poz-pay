@@ -1,25 +1,27 @@
-package outbox
+package postgres
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 // outboxErrorRunes bounds last_error. The column is unbounded text; the cap
 // keeps a broker error from storing an arbitrarily large string.
 const outboxErrorRunes = 500
 
-// Queue is the durable unpublished-message queue.
-type Queue struct {
+// Outbox is the durable unpublished-message queue.
+type Outbox struct {
 	db *sql.DB
 }
 
-func NewQueue(db *sql.DB) *Queue {
-	return &Queue{db: db}
+func NewOutbox(db *sql.DB) *Outbox {
+	return &Outbox{db: db}
 }
 
-func (s *Queue) Pending(ctx context.Context, limit int) ([]Message, error) {
+func (s *Outbox) Pending(ctx context.Context, limit int) ([]store.Message, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -34,9 +36,9 @@ func (s *Queue) Pending(ctx context.Context, limit int) ([]Message, error) {
 		return nil, fmt.Errorf("list outbox: %w", err)
 	}
 	defer rows.Close()
-	var out []Message
+	var out []store.Message
 	for rows.Next() {
-		var msg Message
+		var msg store.Message
 		if err := rows.Scan(&msg.ID, &msg.Topic, &msg.Body); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
 		}
@@ -48,7 +50,7 @@ func (s *Queue) Pending(ctx context.Context, limit int) ([]Message, error) {
 	return out, nil
 }
 
-func (s *Queue) MarkPublished(ctx context.Context, id string) error {
+func (s *Outbox) MarkPublished(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE message_outbox
 		SET published_at = now(), attempts = attempts + 1, last_error = NULL
@@ -60,7 +62,7 @@ func (s *Queue) MarkPublished(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *Queue) RecordFailure(ctx context.Context, id, reason string) error {
+func (s *Outbox) RecordFailure(ctx context.Context, id, reason string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE message_outbox
 		SET attempts = attempts + 1, last_error = $2

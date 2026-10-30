@@ -1,11 +1,9 @@
-package registerintake
+package store
 
 import (
 	"context"
 	"errors"
 	"time"
-
-	"github.com/dmmoody/poz-pay/internal/checkregister"
 )
 
 // ErrNotFound means the upload is not under this institution and customer.
@@ -75,15 +73,16 @@ func (u Upload) RejectionsTruncated() bool {
 	return u.Rejected > len(u.Rejections)
 }
 
-// Records is CRUD for one upload. WithinTx and WithinConn only begin, commit, and roll back.
-type Records interface {
-	WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error
-	WithinConn(ctx context.Context, fn func(context.Context, Conn) error) error
+// RegisterUploads is CRUD for one accepted check-register file.
+// WithinTx and WithinConn only begin, commit, and roll back.
+type RegisterUploads interface {
+	WithinTx(ctx context.Context, fn func(context.Context, UploadTx) error) error
+	WithinConn(ctx context.Context, fn func(context.Context, UploadConn) error) error
 	Find(ctx context.Context, fiID, partyID, id string) (Upload, error)
 }
 
-// Tx is one database transaction. Each method is a single statement.
-type Tx interface {
+// UploadTx is one database transaction. Each method is a single statement.
+type UploadTx interface {
 	InsertIntake(ctx context.Context, row Intake) (time.Time, error)
 	InsertChunk(ctx context.Context, id string, seq int, data []byte) error
 	SetBytes(ctx context.Context, id string, size int64, sum []byte) error
@@ -92,17 +91,17 @@ type Tx interface {
 	InsertBatch(ctx context.Context, fiID, partyID, source string) (string, error)
 	SetIngesting(ctx context.Context, id, batchID string) error
 	RejectionCount(ctx context.Context, id string) (int, error)
-	InsertItem(ctx context.Context, batchID, fiID, partyID string, item checkregister.UploadItem, payeeNormalized string) error
+	InsertItem(ctx context.Context, batchID, fiID, partyID string, item UploadItem, payeeNormalized string) error
 	InsertRejection(ctx context.Context, id string, rej Rejection) error
 	Advance(ctx context.Context, id string, accepted, rejected, rowsProcessed int) error
 }
 
-// Conn is one database connection. The advisory lock is held on this connection
-// across the transactions started with WithinTx.
-type Conn interface {
+// UploadConn is one database connection. The advisory lock is held on this
+// connection across the transactions started with WithinTx.
+type UploadConn interface {
 	TryLock(ctx context.Context, key string) (bool, error)
 	Unlock(ctx context.Context, key string) error
-	WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error
+	WithinTx(ctx context.Context, fn func(context.Context, UploadTx) error) error
 	ReadChunk(ctx context.Context, id string, seq int) ([]byte, bool, error)
 	MarkCompleted(ctx context.Context, id string) error
 	MarkFailed(ctx context.Context, id, reason string) error

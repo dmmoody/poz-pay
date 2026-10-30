@@ -43,7 +43,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./migrations:/migrations:ro
+      - ./internal/store/postgres/migrations:/migrations:ro
     entrypoint:
       - migrate
       - -path=/migrations

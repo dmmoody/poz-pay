@@ -6,7 +6,7 @@
 // worker. The worker reads those chunks, parses the rows, and inserts checks
 // or rejections. The database package does not receive or parse the file.
 // RabbitMQ delivers the wake-up today. Consume accepts any Listener, so
-// another bus (for example Google Pub/Sub) can replace the broker without
+// another broker (for example Google Pub/Sub) can replace it without
 // changing ingest.
 //
 // Column mapping is intentionally absent. Files must already use the
@@ -28,9 +28,7 @@ import (
 
 	"github.com/dmmoody/poz-pay/internal/checkcsv"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/checkregister"
-	"github.com/dmmoody/poz-pay/internal/registerintake"
-	"github.com/dmmoody/poz-pay/internal/tenant"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 const (
@@ -66,7 +64,7 @@ var (
 	ErrTooLarge = errors.New("check register file exceeds the upload limit")
 
 	// ErrUploadNotFound means the upload is not under this institution and customer.
-	ErrUploadNotFound = registerintake.ErrNotFound
+	ErrUploadNotFound = store.ErrNotFound
 
 	// ErrBusy means another worker holds the upload. The delivery should be retried.
 	ErrBusy = errors.New("check register upload is already being ingested")
@@ -82,31 +80,31 @@ var (
 )
 
 // Customer is one party under one financial institution.
-type Customer = tenant.Customer
+type Customer = store.Customer
 
 // ConstraintError is a class-23 integrity failure from a register insert.
-type ConstraintError = registerintake.ConstraintError
+type ConstraintError = store.ConstraintError
 
 // Intake is the row inserted once a file has been accepted.
-type Intake = registerintake.Intake
+type Intake = store.Intake
 
 // IntakeRow is one stored file locked for parsing.
-type IntakeRow = registerintake.IntakeRow
+type IntakeRow = store.IntakeRow
 
 // Rejection is one data row that did not become a register item.
-type Rejection = registerintake.Rejection
+type Rejection = store.Rejection
 
 // Upload is the intake record for one file.
-type Upload = registerintake.Upload
+type Upload = store.Upload
 
 // Records is CRUD for an accepted file.
-type Records = registerintake.Records
+type Records = store.RegisterUploads
 
 // Tx is one database transaction.
-type Tx = registerintake.Tx
+type Tx = store.UploadTx
 
 // Conn is one database connection holding the ingest lock.
-type Conn = registerintake.Conn
+type Conn = store.UploadConn
 
 // Tenants loads the institution, customer, and account numbers an upload is filed under.
 type Tenants interface {
@@ -118,7 +116,7 @@ type Tenants interface {
 // NormalizedPayee is the compare form of Item.Payee.
 type CommittedRow struct {
 	Row             int
-	Item            *checkregister.UploadItem
+	Item            *store.UploadItem
 	NormalizedPayee string
 	Rejection       *Rejection
 }
@@ -349,7 +347,7 @@ func classify(rec checkcsv.Record, routingNumber string, accounts map[string]str
 			},
 		}
 	}
-	item := checkregister.UploadItem{
+	item := store.UploadItem{
 		AccountID:   accountID,
 		CheckNumber: rec.CheckNumber,
 		Amount:      rec.AmountMinor,

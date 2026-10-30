@@ -1,6 +1,6 @@
 # Schema
 
-Postgres 18, shared multi-tenant schema. Migrations under [`migrations/`](../migrations/).
+Postgres 18, shared multi-tenant schema. Migrations under [`internal/store/postgres/migrations/`](../internal/store/postgres/migrations/).
 
 ## Migration order
 

@@ -1,5 +1,5 @@
 // Package rabbitmq is the RabbitMQ broker used to wake check-register ingest.
-// Publish and Listen are the seam another bus (for example Google Pub/Sub)
+// Publish and Listen are the seam another broker (for example Google Pub/Sub)
 // can replace by implementing the same two methods.
 package rabbitmq
 

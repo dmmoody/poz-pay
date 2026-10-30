@@ -1,6 +1,9 @@
-package tenant
+package store
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 // Account is one account under a financial institution and party.
 type Account struct {
@@ -26,3 +29,13 @@ var (
 	// ErrPartyNotFound means the party is not stored under that institution.
 	ErrPartyNotFound = errors.New("party not found")
 )
+
+// Tenants reads institutions, parties, and accounts.
+type Tenants interface {
+	FIExists(ctx context.Context, fiID string) (bool, error)
+	PartyBelongsToFI(ctx context.Context, fiID, partyID string) (bool, error)
+	GetAccount(ctx context.Context, fiID, accountID string) (*Account, error)
+	Customer(ctx context.Context, fiID, partyID string) (Customer, error)
+	Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error)
+	AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error)
+}

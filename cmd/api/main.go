@@ -15,16 +15,11 @@ import (
 	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
 	"github.com/dmmoody/poz-pay/internal/api/health"
 	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
-	"github.com/dmmoody/poz-pay/internal/audit"
 	"github.com/dmmoody/poz-pay/internal/broker/rabbitmq"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/checkregister"
-	"github.com/dmmoody/poz-pay/internal/checksettings"
 	"github.com/dmmoody/poz-pay/internal/outbox"
-	"github.com/dmmoody/poz-pay/internal/postgres"
-	"github.com/dmmoody/poz-pay/internal/registerintake"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
-	"github.com/dmmoody/poz-pay/internal/tenant"
+	"github.com/dmmoody/poz-pay/internal/store/postgres"
 )
 
 func main() {
@@ -47,7 +42,7 @@ func main() {
 	defer db.Close()
 
 	// RabbitMQ is the broker in this process. Publish and Listen are the seam
-	// a different bus (for example Google Pub/Sub) would implement instead.
+	// another broker (for example Google Pub/Sub) would implement instead.
 	broker, err := rabbitmq.New(rabbitURL, rabbitmq.Topology{
 		Exchange:    "pozpay.events",
 		Queue:       "pozpay.check-register.ingest",
@@ -58,13 +53,13 @@ func main() {
 	}
 	defer broker.Close()
 
-	tenants := tenant.New(db)
-	registers := checkregister.New(db)
-	checkSettings := checksettings.New(db)
-	audits := audit.New(db)
+	tenants := postgres.NewTenants(db)
+	registers := postgres.NewCheckRegister(db)
+	checkSettings := postgres.NewCheckSettings(db)
+	audits := postgres.NewCheckAudit(db)
 	checks := checkpay.NewService(tenants, registers, checkSettings, audits)
-	uploads := registerupload.NewService(tenants, registerintake.New(db), maxUpload)
-	relay := outbox.NewRelay(outbox.NewQueue(db), broker, time.Second)
+	uploads := registerupload.NewService(tenants, postgres.NewRegisterUploads(db), maxUpload)
+	relay := outbox.NewRelay(postgres.NewOutbox(db), broker, time.Second)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	defer stopWorkers()

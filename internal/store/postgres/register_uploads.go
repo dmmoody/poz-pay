@@ -1,4 +1,4 @@
-package registerintake
+package postgres
 
 import (
 	"context"
@@ -10,21 +10,21 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/dmmoody/poz-pay/internal/checkregister"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
-// Store is CRUD for check-register intake rows, file chunks,
+// RegisterUploads is CRUD for check-register intake rows, file chunks,
 // rejections, and the checks parsed from a file.
 // Receiving a file, hashing it, and parsing it happen before these methods run.
-type Store struct {
+type RegisterUploads struct {
 	db *sql.DB
 }
 
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewRegisterUploads(db *sql.DB) *RegisterUploads {
+	return &RegisterUploads{db: db}
 }
 
-func (s *Store) WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error {
+func (s *RegisterUploads) WithinTx(ctx context.Context, fn func(context.Context, store.UploadTx) error) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -39,7 +39,7 @@ func (s *Store) WithinTx(ctx context.Context, fn func(context.Context, Tx) error
 	return nil
 }
 
-func (s *Store) WithinConn(ctx context.Context, fn func(context.Context, Conn) error) error {
+func (s *RegisterUploads) WithinConn(ctx context.Context, fn func(context.Context, store.UploadConn) error) error {
 	conn, err := s.db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("connection: %w", err)
@@ -48,7 +48,7 @@ func (s *Store) WithinConn(ctx context.Context, fn func(context.Context, Conn) e
 	return fn(ctx, recordConn{conn: conn})
 }
 
-func (s *Store) Find(ctx context.Context, fiID, partyID, id string) (Upload, error) {
+func (s *RegisterUploads) Find(ctx context.Context, fiID, partyID, id string) (store.Upload, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT id::text, fi_id::text, party_id::text, routing_number, filename,
 		       byte_size, sha256, status, batch_id::text, accepted_count, rejected_count,
@@ -58,14 +58,14 @@ func (s *Store) Find(ctx context.Context, fiID, partyID, id string) (Upload, err
 	`, id, fiID, partyID)
 	up, err := scanIntake(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Upload{}, ErrNotFound
+		return store.Upload{}, store.ErrNotFound
 	}
 	if err != nil {
-		return Upload{}, err
+		return store.Upload{}, err
 	}
 	rejections, err := listRejections(ctx, s.db, id)
 	if err != nil {
-		return Upload{}, err
+		return store.Upload{}, err
 	}
 	up.Rejections = rejections
 	return up, nil
@@ -73,7 +73,7 @@ func (s *Store) Find(ctx context.Context, fiID, partyID, id string) (Upload, err
 
 type recordTx struct{ tx *sql.Tx }
 
-func (t recordTx) InsertIntake(ctx context.Context, row Intake) (time.Time, error) {
+func (t recordTx) InsertIntake(ctx context.Context, row store.Intake) (time.Time, error) {
 	var received time.Time
 	err := t.tx.QueryRowContext(ctx, `
 		INSERT INTO check_register_uploads (
@@ -119,9 +119,9 @@ func (t recordTx) InsertMessage(ctx context.Context, topic string, payload []byt
 	return nil
 }
 
-func (t recordTx) LockIntake(ctx context.Context, id string) (IntakeRow, error) {
+func (t recordTx) LockIntake(ctx context.Context, id string) (store.IntakeRow, error) {
 	var (
-		row     IntakeRow
+		row     store.IntakeRow
 		batchID sql.NullString
 	)
 	err := t.tx.QueryRowContext(ctx, `
@@ -131,10 +131,10 @@ func (t recordTx) LockIntake(ctx context.Context, id string) (IntakeRow, error) 
 		FOR UPDATE
 	`, id).Scan(&row.FIID, &row.PartyID, &row.RoutingNumber, &row.Status, &row.RowsProcessed, &batchID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return IntakeRow{}, ErrNotFound
+		return store.IntakeRow{}, store.ErrNotFound
 	}
 	if err != nil {
-		return IntakeRow{}, fmt.Errorf("lock intake: %w", err)
+		return store.IntakeRow{}, fmt.Errorf("lock intake: %w", err)
 	}
 	if batchID.Valid {
 		row.BatchID = batchID.String
@@ -178,11 +178,11 @@ func (t recordTx) RejectionCount(ctx context.Context, id string) (int, error) {
 	return n, nil
 }
 
-func (t recordTx) InsertItem(ctx context.Context, batchID, fiID, partyID string, item checkregister.UploadItem, payeeNormalized string) error {
+func (t recordTx) InsertItem(ctx context.Context, batchID, fiID, partyID string, item store.UploadItem, payeeNormalized string) error {
 	if _, err := t.tx.ExecContext(ctx, `SAVEPOINT row_sp`); err != nil {
 		return fmt.Errorf("savepoint: %w", err)
 	}
-	err := checkregister.InsertItem(ctx, t.tx, batchID, fiID, partyID, item, payeeNormalized)
+	err := insertItem(ctx, t.tx, batchID, fiID, partyID, item, payeeNormalized)
 	if err == nil {
 		if _, relErr := t.tx.ExecContext(ctx, `RELEASE SAVEPOINT row_sp`); relErr != nil {
 			return fmt.Errorf("release savepoint: %w", relErr)
@@ -196,12 +196,12 @@ func (t recordTx) InsertItem(ctx context.Context, batchID, fiID, partyID string,
 		return fmt.Errorf("release savepoint: %w", relErr)
 	}
 	if state, ok := constraintState(err); ok {
-		return &ConstraintError{State: state}
+		return &store.ConstraintError{State: state}
 	}
 	return fmt.Errorf("insert check: %w", err)
 }
 
-func (t recordTx) InsertRejection(ctx context.Context, id string, rej Rejection) error {
+func (t recordTx) InsertRejection(ctx context.Context, id string, rej store.Rejection) error {
 	if _, err := t.tx.ExecContext(ctx, `
 		INSERT INTO check_register_upload_rejections (upload_id, row_number, code, message)
 		VALUES ($1::uuid, $2, $3, $4)
@@ -261,7 +261,7 @@ func (c recordConn) Unlock(ctx context.Context, key string) error {
 	return nil
 }
 
-func (c recordConn) WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error {
+func (c recordConn) WithinTx(ctx context.Context, fn func(context.Context, store.UploadTx) error) error {
 	tx, err := c.conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin: %w", err)
@@ -334,9 +334,9 @@ func constraintState(err error) (string, bool) {
 	return "", false
 }
 
-func scanIntake(row interface{ Scan(dest ...any) error }) (Upload, error) {
+func scanIntake(row interface{ Scan(dest ...any) error }) (store.Upload, error) {
 	var (
-		up       Upload
+		up       store.Upload
 		sum      []byte
 		batchID  sql.NullString
 		failure  sql.NullString
@@ -348,7 +348,7 @@ func scanIntake(row interface{ Scan(dest ...any) error }) (Upload, error) {
 		&up.RowsProcessed, &failure, &received,
 	)
 	if err != nil {
-		return Upload{}, err
+		return store.Upload{}, err
 	}
 	up.SHA256 = hex.EncodeToString(sum)
 	up.ReceivedAt = received.UTC()
@@ -363,7 +363,7 @@ func scanIntake(row interface{ Scan(dest ...any) error }) (Upload, error) {
 
 func listRejections(ctx context.Context, q interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-}, id string) ([]Rejection, error) {
+}, id string) ([]store.Rejection, error) {
 	rows, err := q.QueryContext(ctx, `
 		SELECT row_number, code, message
 		FROM check_register_upload_rejections
@@ -374,9 +374,9 @@ func listRejections(ctx context.Context, q interface {
 		return nil, fmt.Errorf("list rejections: %w", err)
 	}
 	defer rows.Close()
-	var out []Rejection
+	var out []store.Rejection
 	for rows.Next() {
-		var rej Rejection
+		var rej store.Rejection
 		if err := rows.Scan(&rej.Row, &rej.Code, &rej.Message); err != nil {
 			return nil, fmt.Errorf("scan rejection: %w", err)
 		}

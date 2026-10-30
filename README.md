@@ -54,6 +54,6 @@ make run
 ## Layout
 
 - `cmd/api` — HTTP composition root (API, outbox relay, ingest consumer)
-- `migrations/` — ordered SQL (golang-migrate via Compose profile `tools`)
+- `internal/store/postgres/migrations/` — ordered SQL (golang-migrate via Compose profile `tools`)
 - `samples/check-registers/` — CSV files. Seed loads treasury and Beta. Acme Operating is left for upload
 - `docker-compose.yml` — Postgres 18 + RabbitMQ + API + migrate tool

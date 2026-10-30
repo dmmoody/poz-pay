@@ -6,43 +6,28 @@ import (
 	"context"
 	"log"
 	"time"
+
+	"github.com/dmmoody/poz-pay/internal/broker"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 // Message is one unpublished broker payload.
-type Message struct {
-	ID    string
-	Topic string
-	Body  []byte
-}
-
-// Store is the unpublished-message queue.
-type Store interface {
-	Pending(ctx context.Context, limit int) ([]Message, error)
-	MarkPublished(ctx context.Context, id string) error
-	RecordFailure(ctx context.Context, id, reason string) error
-}
-
-// Publisher delivers one durable message.
-// RabbitMQ is the current broker. A Google Pub/Sub client can implement the
-// same method; the relay and the ingest worker do not import a broker SDK.
-type Publisher interface {
-	Publish(ctx context.Context, topic string, body []byte) error
-}
+type Message = store.Message
 
 // Relay polls the store and publishes. One failed publish stops the batch so
 // a broker outage does not spin on every pending row; the next tick retries.
 type Relay struct {
-	store    Store
-	pub      Publisher
+	store    store.Outbox
+	pub      broker.Publisher
 	interval time.Duration
 	batch    int
 }
 
-func NewRelay(store Store, pub Publisher, interval time.Duration) *Relay {
+func NewRelay(queue store.Outbox, pub broker.Publisher, interval time.Duration) *Relay {
 	if interval <= 0 {
 		interval = time.Second
 	}
-	return &Relay{store: store, pub: pub, interval: interval, batch: 20}
+	return &Relay{store: queue, pub: pub, interval: interval, batch: 20}
 }
 
 // Run publishes until ctx is cancelled, then tries one last batch.

@@ -5,17 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+
+	"github.com/dmmoody/poz-pay/internal/broker"
 )
 
-// Listener is the broker consumer. RabbitMQ implements it today; another bus
-// can implement the same method. A non-nil handler error asks for redelivery.
-// Nil acknowledges the delivery, including messages this service discards.
-type Listener interface {
-	Listen(ctx context.Context, topic string, handle func(context.Context, []byte) error) error
-}
-
 // Consume blocks until ctx is cancelled, ingesting each accepted upload.
-func Consume(ctx context.Context, lis Listener, uploads *Service) error {
+func Consume(ctx context.Context, lis broker.Listener, uploads *Service) error {
 	return lis.Listen(ctx, TopicUploadAccepted, func(ctx context.Context, body []byte) error {
 		var msg struct {
 			UploadID string `json:"upload_id"`

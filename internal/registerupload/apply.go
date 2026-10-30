@@ -9,7 +9,7 @@ import (
 	"io"
 
 	"github.com/dmmoody/poz-pay/internal/checkcsv"
-	"github.com/dmmoody/poz-pay/internal/checkregister"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 // MaxStoredRejections is how many row failures are kept for one upload.
@@ -23,7 +23,7 @@ const maxFailureRunes = 500
 // Implementations run SQL. They do not choose rejection codes or messages.
 type BatchWriter interface {
 	RejectionCount(ctx context.Context) (int, error)
-	InsertItem(ctx context.Context, item checkregister.UploadItem, payeeNormalized string) error
+	InsertItem(ctx context.Context, item store.UploadItem, payeeNormalized string) error
 	InsertRejection(ctx context.Context, rej Rejection) error
 	Advance(ctx context.Context, accepted, rejected, rowsProcessed int) error
 }

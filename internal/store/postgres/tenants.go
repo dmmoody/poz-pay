@@ -1,22 +1,24 @@
-package tenant
+package postgres
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
-// Store reads FI / account rows for decide and upload.
-type Store struct {
+// Tenants reads FI / account rows for decide and upload.
+type Tenants struct {
 	db *sql.DB
 }
 
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewTenants(db *sql.DB) *Tenants {
+	return &Tenants{db: db}
 }
 
-func (s *Store) FIExists(ctx context.Context, fiID string) (bool, error) {
+func (s *Tenants) FIExists(ctx context.Context, fiID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM financial_institutions WHERE id = $1::uuid)
@@ -27,7 +29,7 @@ func (s *Store) FIExists(ctx context.Context, fiID string) (bool, error) {
 	return exists, nil
 }
 
-func (s *Store) PartyBelongsToFI(ctx context.Context, fiID, partyID string) (bool, error) {
+func (s *Tenants) PartyBelongsToFI(ctx context.Context, fiID, partyID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -41,8 +43,8 @@ func (s *Store) PartyBelongsToFI(ctx context.Context, fiID, partyID string) (boo
 }
 
 // GetAccount returns the account for (fi_id, account_id) or nil if not found under that FI.
-func (s *Store) GetAccount(ctx context.Context, fiID, accountID string) (*Account, error) {
-	var a Account
+func (s *Tenants) GetAccount(ctx context.Context, fiID, accountID string) (*store.Account, error) {
+	var a store.Account
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id::text, fi_id::text, party_id::text, active, positive_pay_enabled
 		FROM accounts
@@ -58,7 +60,7 @@ func (s *Store) GetAccount(ctx context.Context, fiID, accountID string) (*Accoun
 }
 
 // Customer returns the institution and party an upload is filed under.
-func (s *Store) Customer(ctx context.Context, fiID, partyID string) (Customer, error) {
+func (s *Tenants) Customer(ctx context.Context, fiID, partyID string) (store.Customer, error) {
 	var (
 		fiActive bool
 		routing  sql.NullString
@@ -69,10 +71,10 @@ func (s *Store) Customer(ctx context.Context, fiID, partyID string) (Customer, e
 		WHERE id = $1::uuid
 	`, fiID).Scan(&fiActive, &routing)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Customer{}, ErrInstitutionNotFound
+		return store.Customer{}, store.ErrInstitutionNotFound
 	}
 	if err != nil {
-		return Customer{}, fmt.Errorf("load financial institution: %w", err)
+		return store.Customer{}, fmt.Errorf("load financial institution: %w", err)
 	}
 
 	var partyActive bool
@@ -80,12 +82,12 @@ func (s *Store) Customer(ctx context.Context, fiID, partyID string) (Customer, e
 		SELECT active FROM parties WHERE id = $1::uuid AND fi_id = $2::uuid
 	`, partyID, fiID).Scan(&partyActive)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Customer{}, ErrPartyNotFound
+		return store.Customer{}, store.ErrPartyNotFound
 	}
 	if err != nil {
-		return Customer{}, fmt.Errorf("load party: %w", err)
+		return store.Customer{}, fmt.Errorf("load party: %w", err)
 	}
-	out := Customer{FIActive: fiActive, PartyActive: partyActive}
+	out := store.Customer{FIActive: fiActive, PartyActive: partyActive}
 	if routing.Valid {
 		out.RoutingNumber = routing.String
 	}
@@ -93,7 +95,7 @@ func (s *Store) Customer(ctx context.Context, fiID, partyID string) (Customer, e
 }
 
 // Accounts maps external account numbers to account ids for one customer.
-func (s *Store) Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error) {
+func (s *Tenants) Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT external_account_number, id::text
 		FROM accounts
@@ -119,7 +121,7 @@ func (s *Store) Accounts(ctx context.Context, fiID, partyID string) (map[string]
 }
 
 // AccountOnParty checks account belongs to party under FI.
-func (s *Store) AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error) {
+func (s *Tenants) AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (

@@ -1,6 +1,7 @@
-package checkregister
+package store
 
 import (
+	"context"
 	"errors"
 	"time"
 )
@@ -69,4 +70,11 @@ type PaymentRecord struct {
 	CorrelationID string
 	PaidAt        time.Time
 	Request       any
+}
+
+// CheckRegister loads issued checks and writes batches and postings.
+type CheckRegister interface {
+	FindItem(ctx context.Context, fiID, accountID, checkNumber string) (*RegisterItem, error)
+	InsertBatch(ctx context.Context, fiID, partyID string, items []UploadItem, payeeNorm func(string) string) (UploadBatchResult, error)
+	RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, error)
 }

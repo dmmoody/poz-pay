@@ -1,4 +1,4 @@
-package audit
+package postgres
 
 import (
 	"context"
@@ -8,19 +8,20 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/decision"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
-// Store appends decision_audit rows.
-type Store struct {
+// CheckAudit appends decision_audit rows.
+type CheckAudit struct {
 	db *sql.DB
 }
 
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewCheckAudit(db *sql.DB) *CheckAudit {
+	return &CheckAudit{db: db}
 }
 
 // WriteCheckDecision persists one check presentment. partyID/accountID may be empty before the account resolves.
-func (s *Store) WriteCheckDecision(ctx context.Context, entry CheckEntry) (string, error) {
+func (s *CheckAudit) WriteCheckDecision(ctx context.Context, entry store.CheckEntry) (string, error) {
 	excs, err := json.Marshal(entry.Result.Exceptions)
 	if err != nil {
 		return "", fmt.Errorf("marshal exceptions: %w", err)
@@ -67,7 +68,7 @@ func (s *Store) WriteCheckDecision(ctx context.Context, entry CheckEntry) (strin
 			$12, $13::uuid
 		)
 		RETURNING id::text
-	`, entry.FIID, party, account, decision.RailCheck, KindPresentment, entry.Result.Decision,
+	`, entry.FIID, party, account, decision.RailCheck, store.KindPresentment, entry.Result.Decision,
 		matchJSON, excs, reqJSON, corr, entry.Result.LatencyMs,
 		entry.CheckNumber, registerItem).Scan(&id)
 	if err != nil {
@@ -77,7 +78,7 @@ func (s *Store) WriteCheckDecision(ctx context.Context, entry CheckEntry) (strin
 }
 
 // ListCheckDecisions returns presentments of one check, oldest first.
-func (s *Store) ListCheckDecisions(ctx context.Context, fiID, accountID, checkNumber string) ([]RecordedDecision, error) {
+func (s *CheckAudit) ListCheckDecisions(ctx context.Context, fiID, accountID, checkNumber string) ([]store.RecordedDecision, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id::text, decision, match, exceptions, request,
 		       correlation_id, register_item_id::text, decided_at, latency_ms
@@ -94,10 +95,10 @@ func (s *Store) ListCheckDecisions(ctx context.Context, fiID, accountID, checkNu
 	}
 	defer rows.Close()
 
-	out := []RecordedDecision{}
+	out := []store.RecordedDecision{}
 	for rows.Next() {
 		var (
-			rec      RecordedDecision
+			rec      store.RecordedDecision
 			matchRaw []byte
 			excRaw   []byte
 			reqRaw   []byte
@@ -150,7 +151,7 @@ func (s *Store) ListCheckDecisions(ctx context.Context, fiID, accountID, checkNu
 }
 
 // ListCheckAudit returns presentments and the posting for one check, oldest recorded first.
-func (s *Store) ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber string) ([]CheckEvent, error) {
+func (s *CheckAudit) ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber string) ([]store.CheckEvent, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id::text, kind, decision, match, exceptions, request,
 		       correlation_id, register_item_id::text, decided_at, latency_ms, paid_at
@@ -166,10 +167,10 @@ func (s *Store) ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber
 	}
 	defer rows.Close()
 
-	out := []CheckEvent{}
+	out := []store.CheckEvent{}
 	for rows.Next() {
 		var (
-			event    CheckEvent
+			event    store.CheckEvent
 			stored   sql.NullString
 			matchRaw []byte
 			excRaw   []byte
@@ -203,13 +204,13 @@ func (s *Store) ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber
 			event.RegisterItemID = regID.String
 		}
 		switch event.Kind {
-		case KindPosted:
+		case store.KindPosted:
 			if paidAt.Valid {
 				t := paidAt.Time.UTC()
-				event.Posted = &Posted{PaidAt: t}
+				event.Posted = &store.Posted{PaidAt: t}
 			}
 		default:
-			presentment := Presentment{
+			presentment := store.Presentment{
 				Exceptions: []decision.Exception{},
 				LatencyMs:  latency,
 			}
@@ -241,7 +242,16 @@ func (s *Store) ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber
 	return out, nil
 }
 
-func InsertPosted(ctx context.Context, tx *sql.Tx, rec PostedCheck, registerItemID string, paidAt time.Time, latencyMs int64) error {
+type postedCheck struct {
+	FIID          string
+	PartyID       string
+	AccountID     string
+	CheckNumber   string
+	CorrelationID string
+	Request       any
+}
+
+func insertPosted(ctx context.Context, tx *sql.Tx, rec postedCheck, registerItemID string, paidAt time.Time, latencyMs int64) error {
 	if latencyMs < 0 {
 		latencyMs = 0
 	}
@@ -267,7 +277,7 @@ func InsertPosted(ctx context.Context, tx *sql.Tx, rec PostedCheck, registerItem
 			'[]'::jsonb, $6::jsonb, $7, $8,
 			$9, $10::uuid, $11
 		)
-	`, rec.FIID, rec.PartyID, rec.AccountID, decision.RailCheck, KindPosted,
+	`, rec.FIID, rec.PartyID, rec.AccountID, decision.RailCheck, store.KindPosted,
 		reqJSON, corr, latencyMs, rec.CheckNumber, registerItemID, paidAt.UTC())
 	if err != nil {
 		return fmt.Errorf("insert posted audit: %w", err)

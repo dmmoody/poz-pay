@@ -1,4 +1,4 @@
-package checkregister
+package postgres
 
 import (
 	"context"
@@ -7,22 +7,22 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/audit"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
-// Store persists and loads check register rows.
-type Store struct {
+// CheckRegister persists and loads check register rows.
+type CheckRegister struct {
 	db *sql.DB
 }
 
-func New(db *sql.DB) *Store {
-	return &Store{db: db}
+func NewCheckRegister(db *sql.DB) *CheckRegister {
+	return &CheckRegister{db: db}
 }
 
 // FindItem loads the best matching register row for decide (active preferred over voided).
-func (s *Store) FindItem(ctx context.Context, fiID, accountID, checkNumber string) (*RegisterItem, error) {
+func (s *CheckRegister) FindItem(ctx context.Context, fiID, accountID, checkNumber string) (*store.RegisterItem, error) {
 	var (
-		item      RegisterItem
+		item      store.RegisterItem
 		issueDate sql.NullTime
 		voidedAt  sql.NullTime
 		paidAt    sql.NullTime
@@ -75,13 +75,13 @@ func (s *Store) FindItem(ctx context.Context, fiID, accountID, checkNumber strin
 }
 
 // InsertBatch writes a register batch and accepted items in one transaction.
-func (s *Store) InsertBatch(
+func (s *CheckRegister) InsertBatch(
 	ctx context.Context,
 	fiID, partyID string,
-	items []UploadItem,
+	items []store.UploadItem,
 	payeeNorm func(string) string,
-) (UploadBatchResult, error) {
-	var out UploadBatchResult
+) (store.UploadBatchResult, error) {
+	var out store.UploadBatchResult
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return out, fmt.Errorf("begin upload: %w", err)
@@ -100,8 +100,8 @@ func (s *Store) InsertBatch(
 	out.BatchID = batchID
 
 	for i, it := range items {
-		if err := InsertItem(ctx, tx, batchID, fiID, partyID, it, payeeNorm(it.Payee)); err != nil {
-			out.Errors = append(out.Errors, UploadItemError{
+		if err := insertItem(ctx, tx, batchID, fiID, partyID, it, payeeNorm(it.Payee)); err != nil {
+			out.Errors = append(out.Errors, store.UploadItemError{
 				Index:   i,
 				Message: err.Error(),
 			})
@@ -125,11 +125,11 @@ func (s *Store) InsertBatch(
 
 // RecordPayment sets paid_at on the active register item.
 // A repeated call returns the original posting and does not move paid_at.
-func (s *Store) RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, error) {
+func (s *CheckRegister) RecordPayment(ctx context.Context, rec store.PaymentRecord) (store.Payment, error) {
 	started := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Payment{}, fmt.Errorf("begin post: %w", err)
+		return store.Payment{}, fmt.Errorf("begin post: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 
@@ -148,16 +148,16 @@ func (s *Store) RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, 
 		FOR UPDATE
 	`, rec.FIID, rec.AccountID, rec.CheckNumber).Scan(&id, &voidedAt, &paidAt, &paidCorr)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Payment{}, ErrNotInRegister
+		return store.Payment{}, store.ErrNotInRegister
 	}
 	if err != nil {
-		return Payment{}, fmt.Errorf("lock register item: %w", err)
+		return store.Payment{}, fmt.Errorf("lock register item: %w", err)
 	}
 	if voidedAt.Valid {
-		return Payment{}, ErrVoided
+		return store.Payment{}, store.ErrVoided
 	}
 	if paidAt.Valid {
-		payment := Payment{
+		payment := store.Payment{
 			RegisterItemID: id,
 			PaidAt:         paidAt.Time.UTC(),
 			AlreadyPaid:    true,
@@ -166,7 +166,7 @@ func (s *Store) RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, 
 			payment.CorrelationID = paidCorr.String
 		}
 		if err := tx.Commit(); err != nil {
-			return Payment{}, fmt.Errorf("commit post: %w", err)
+			return store.Payment{}, fmt.Errorf("commit post: %w", err)
 		}
 		return payment, nil
 	}
@@ -185,9 +185,9 @@ func (s *Store) RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, 
 		RETURNING paid_at
 	`, id, rec.PaidAt.UTC(), corr).Scan(&posted)
 	if err != nil {
-		return Payment{}, fmt.Errorf("record payment: %w", err)
+		return store.Payment{}, fmt.Errorf("record payment: %w", err)
 	}
-	if err := audit.InsertPosted(ctx, tx, audit.PostedCheck{
+	if err := insertPosted(ctx, tx, postedCheck{
 		FIID:          rec.FIID,
 		PartyID:       rec.PartyID,
 		AccountID:     rec.AccountID,
@@ -195,23 +195,23 @@ func (s *Store) RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, 
 		CorrelationID: rec.CorrelationID,
 		Request:       rec.Request,
 	}, id, posted, time.Since(started).Milliseconds()); err != nil {
-		return Payment{}, err
+		return store.Payment{}, err
 	}
 	if err := tx.Commit(); err != nil {
-		return Payment{}, fmt.Errorf("commit post: %w", err)
+		return store.Payment{}, fmt.Errorf("commit post: %w", err)
 	}
-	return Payment{
+	return store.Payment{
 		RegisterItemID: id,
 		PaidAt:         posted.UTC(),
 		CorrelationID:  rec.CorrelationID,
 	}, nil
 }
 
-func InsertItem(
+func insertItem(
 	ctx context.Context,
 	tx *sql.Tx,
 	batchID, fiID, partyID string,
-	it UploadItem,
+	it store.UploadItem,
 	payeeNormalized string,
 ) error {
 	var voided any

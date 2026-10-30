@@ -6,9 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkregister"
 	"github.com/dmmoody/poz-pay/internal/decision"
-	"github.com/dmmoody/poz-pay/internal/tenant"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 // AccountReader resolves accounts for decide/upload.
@@ -96,19 +95,19 @@ type DecideInput struct {
 }
 
 // ErrFINotFound is returned when fi_id is unknown (HTTP 404).
-var ErrFINotFound = tenant.ErrInstitutionNotFound
+var ErrFINotFound = store.ErrInstitutionNotFound
 
 // ErrPartyNotFound is returned when party is unknown under FI.
-var ErrPartyNotFound = tenant.ErrPartyNotFound
+var ErrPartyNotFound = store.ErrPartyNotFound
 
 // ErrAccountNotFound is returned when the account is unknown under the FI.
 var ErrAccountNotFound = fmt.Errorf("account not found")
 
 // ErrCheckNotInRegister is returned when a posting names no register row.
-var ErrCheckNotInRegister = checkregister.ErrNotInRegister
+var ErrCheckNotInRegister = store.ErrNotInRegister
 
 // ErrCheckVoided is returned when a posting targets a voided register row.
-var ErrCheckVoided = checkregister.ErrVoided
+var ErrCheckVoided = store.ErrVoided
 
 // ErrCheckNumberRequired is returned when a check number is blank.
 var ErrCheckNumberRequired = fmt.Errorf("check number is required")

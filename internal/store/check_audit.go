@@ -1,6 +1,7 @@
-package audit
+package store
 
 import (
+	"context"
 	"encoding/json"
 	"time"
 
@@ -65,12 +66,9 @@ type Posted struct {
 	PaidAt time.Time `json:"paid_at"`
 }
 
-// PostedCheck is the settlement written in the same transaction as the register posting.
-type PostedCheck struct {
-	FIID          string
-	PartyID       string
-	AccountID     string
-	CheckNumber   string
-	CorrelationID string
-	Request       any
+// CheckAudit appends presentments and lists one check's history.
+type CheckAudit interface {
+	WriteCheckDecision(ctx context.Context, entry CheckEntry) (string, error)
+	ListCheckDecisions(ctx context.Context, fiID, accountID, checkNumber string) ([]RecordedDecision, error)
+	ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber string) ([]CheckEvent, error)
 }
