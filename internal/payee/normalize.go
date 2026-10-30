@@ -1,12 +1,12 @@
-package checkpay
+package payee
 
 import (
 	"strings"
 	"unicode"
 )
 
-// NormalizePayee applies spike payee normalization: trim, upper, collapse space.
-func NormalizePayee(s string) string {
+// Normalize applies the compare form: trim, upper, collapse space.
+func Normalize(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return ""

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func TestRejectionForState(t *testing.T) {
@@ -30,8 +30,8 @@ func TestApplyBatch_constraintBecomesRejectionAndCapHolds(t *testing.T) {
 	t.Parallel()
 	w := &fakeBatch{stored: 1}
 	rows := []CommittedRow{
-		{Row: 1, Item: &checkpay.UploadItem{CheckNumber: "1"}, NormalizedPayee: "A"},
-		{Row: 2, Item: &checkpay.UploadItem{CheckNumber: "2"}, NormalizedPayee: "B"},
+		{Row: 1, Item: &store.UploadItem{CheckNumber: "1"}, NormalizedPayee: "A"},
+		{Row: 2, Item: &store.UploadItem{CheckNumber: "2"}, NormalizedPayee: "B"},
 		{Row: 3, Rejection: &Rejection{Row: 3, Code: CodeUnknownAccount, Message: "missing"}},
 	}
 	w.failCheck = "2"
@@ -50,7 +50,7 @@ func TestApplyBatch_storesRecognizedConstraint(t *testing.T) {
 	t.Parallel()
 	w := &fakeBatch{}
 	w.failCheck = "9"
-	rows := []CommittedRow{{Row: 9, Item: &checkpay.UploadItem{CheckNumber: "9"}, NormalizedPayee: "A"}}
+	rows := []CommittedRow{{Row: 9, Item: &store.UploadItem{CheckNumber: "9"}, NormalizedPayee: "A"}}
 	if err := ApplyBatch(context.Background(), w, 9, rows, 10); err != nil {
 		t.Fatal(err)
 	}
@@ -106,7 +106,7 @@ type fakeBatch struct {
 
 func (f *fakeBatch) RejectionCount(context.Context) (int, error) { return f.stored, nil }
 
-func (f *fakeBatch) InsertItem(_ context.Context, item checkpay.UploadItem, _ string) error {
+func (f *fakeBatch) InsertItem(_ context.Context, item store.UploadItem, _ string) error {
 	if item.CheckNumber == f.failCheck {
 		return &ConstraintError{State: "23505"}
 	}

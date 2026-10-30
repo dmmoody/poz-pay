@@ -1,4 +1,4 @@
-package checkpay_test
+package checkdecision_test
 
 import (
 	"bytes"
@@ -11,8 +11,10 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/api"
-	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	decisionhttp "github.com/dmmoody/poz-pay/internal/api/checkdecision"
+	postinghttp "github.com/dmmoody/poz-pay/internal/api/checkposting"
+	"github.com/dmmoody/poz-pay/internal/checkdecision"
+	"github.com/dmmoody/poz-pay/internal/checkposting"
 	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
@@ -26,7 +28,7 @@ var testPaidAt = time.Date(2026, 10, 26, 18, 0, 0, 0, time.UTC)
 func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	t.Parallel()
 
-	item := &checkpay.RegisterItem{
+	item := &checkdecision.RegisterItem{
 		ID:              "reg-1005",
 		CheckNumber:     "1005",
 		Amount:          12000,
@@ -35,12 +37,12 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	}
 	reg := &memRegister{item: item}
 	log := &memDecisions{}
-	svc := newTestService(reg, log)
-	in := checkpay.DecideInput{
+	decisions, postings := newTestServices(reg, log)
+	in := checkdecision.DecideInput{
 		FIID:          testFIID,
 		AccountID:     testAccountID,
 		CorrelationID: "core-1",
-		Check: checkpay.PresentedCheck{
+		Check: checkdecision.PresentedCheck{
 			CheckNumber: "1005",
 			Amount:      12000,
 			Payee:       "STAPLES INC",
@@ -49,11 +51,11 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	first, err := svc.Decide(ctx, in)
+	first, err := decisions.Decide(ctx, in)
 	if err != nil {
 		t.Fatalf("first decide: %v", err)
 	}
-	second, err := svc.Decide(ctx, in)
+	second, err := decisions.Decide(ctx, in)
 	if err != nil {
 		t.Fatalf("second decide: %v", err)
 	}
@@ -64,7 +66,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		t.Fatalf("decide posted %d times", reg.posts)
 	}
 
-	posted, err := svc.Post(ctx, checkpay.PostInput{
+	posted, err := postings.Post(ctx, checkposting.PostInput{
 		FIID:          testFIID,
 		AccountID:     testAccountID,
 		CheckNumber:   "1005",
@@ -78,7 +80,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		t.Fatalf("post = %+v", posted)
 	}
 
-	again, err := svc.Post(ctx, checkpay.PostInput{
+	again, err := postings.Post(ctx, checkposting.PostInput{
 		FIID:          testFIID,
 		AccountID:     testAccountID,
 		CheckNumber:   "1005",
@@ -95,7 +97,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		t.Fatalf("posts = %d", reg.posts)
 	}
 
-	third, err := svc.Decide(ctx, in)
+	third, err := decisions.Decide(ctx, in)
 	if err != nil {
 		t.Fatalf("third decide: %v", err)
 	}
@@ -103,7 +105,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		t.Fatalf("after post = %+v", third)
 	}
 
-	history, err := svc.ListDecisions(ctx, testFIID, testAccountID, "1005")
+	history, err := decisions.ListDecisions(ctx, testFIID, testAccountID, "1005")
 	if err != nil {
 		t.Fatalf("history: %v", err)
 	}
@@ -127,7 +129,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		}
 	}
 
-	audit, err := svc.ListAudit(ctx, testFIID, testAccountID, "1005")
+	audit, err := decisions.ListAudit(ctx, testFIID, testAccountID, "1005")
 	if err != nil {
 		t.Fatalf("audit: %v", err)
 	}
@@ -136,10 +138,10 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 		got[i] = event.Kind
 	}
 	want := []string{
-		checkpay.AuditKindPresentment,
-		checkpay.AuditKindPresentment,
-		checkpay.AuditKindPosted,
-		checkpay.AuditKindPresentment,
+		checkdecision.AuditKindPresentment,
+		checkdecision.AuditKindPresentment,
+		checkdecision.AuditKindPosted,
+		checkdecision.AuditKindPresentment,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("audit kinds = %v", got)
@@ -155,58 +157,21 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	}
 }
 
-func TestPost_rejectsVoidedAndMissing(t *testing.T) {
-	t.Parallel()
-	ctx := context.Background()
-
-	t.Run("missing", func(t *testing.T) {
-		t.Parallel()
-		svc := newTestService(&memRegister{}, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "9999", PaidAt: testPaidAt})
-		if err != checkpay.ErrCheckNotInRegister {
-			t.Fatalf("err = %v", err)
-		}
-	})
-
-	t.Run("voided", func(t *testing.T) {
-		t.Parallel()
-		voidedAt := time.Now().UTC()
-		svc := newTestService(&memRegister{item: &checkpay.RegisterItem{
-			ID:       "reg-void",
-			VoidedAt: &voidedAt,
-		}}, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: testAccountID, CheckNumber: "1003", PaidAt: testPaidAt})
-		if err != checkpay.ErrCheckVoided {
-			t.Fatalf("err = %v", err)
-		}
-	})
-
-	t.Run("unknown account", func(t *testing.T) {
-		t.Parallel()
-		reg := &memRegister{item: &checkpay.RegisterItem{ID: "reg-1"}}
-		svc := newTestService(reg, &memDecisions{})
-		_, err := svc.Post(ctx, checkpay.PostInput{FIID: testFIID, AccountID: "missing", CheckNumber: "1005", PaidAt: testPaidAt})
-		if err != checkpay.ErrAccountNotFound {
-			t.Fatalf("err = %v", err)
-		}
-		if reg.posts != 0 {
-			t.Fatalf("posts = %d", reg.posts)
-		}
-	})
-}
-
 func TestHTTP_presentmentsStayInHistoryUntilPost(t *testing.T) {
 	t.Parallel()
 
-	reg := &memRegister{item: &checkpay.RegisterItem{
+	reg := &memRegister{item: &checkdecision.RegisterItem{
 		ID:              "reg-1005",
 		CheckNumber:     "1005",
 		Amount:          12000,
 		Payee:           "STAPLES INC",
 		PayeeNormalized: "STAPLES INC",
 	}}
+	log := &memDecisions{}
+	decisions, postings := newTestServices(reg, log)
 	srv := httptest.NewServer(api.NewRouter(api.Routes{
-		Checks: payhttp.Handler{Checks: newTestService(reg, &memDecisions{})},
+		Decisions: decisionhttp.Handler{Decisions: decisions},
+		Postings:  postinghttp.Handler{Postings: postings},
 	}))
 	t.Cleanup(srv.Close)
 
@@ -228,9 +193,9 @@ func TestHTTP_presentmentsStayInHistoryUntilPost(t *testing.T) {
 	if history.Status != http.StatusOK || history.JSON["paid_at"] != nil {
 		t.Fatalf("history before post = %d %+v", history.Status, history.JSON)
 	}
-	decisions, _ := history.JSON["decisions"].([]any)
-	if len(decisions) != 2 {
-		t.Fatalf("decisions = %d", len(decisions))
+	decided, _ := history.JSON["decisions"].([]any)
+	if len(decided) != 2 {
+		t.Fatalf("decisions = %d", len(decided))
 	}
 
 	posted := postJSON(t, srv.URL+"/v1/fis/"+testFIID+"/accounts/"+testAccountID+"/check-postings", []byte(`{"check_number":"1005","correlation_id":"core-1","paid_at":"2026-10-26T18:00:00Z"}`))
@@ -295,55 +260,43 @@ func readResult(t *testing.T, res *http.Response) httpResult {
 }
 
 type memAccounts struct {
-	acct *checkpay.Account
+	acct *checkdecision.Account
 }
 
 func (m memAccounts) FIExists(context.Context, string) (bool, error) { return true, nil }
 
-func (m memAccounts) PartyBelongsToFI(context.Context, string, string) (bool, error) {
-	return true, nil
-}
-
-func (m memAccounts) GetAccount(_ context.Context, _, accountID string) (*checkpay.Account, error) {
+func (m memAccounts) GetAccount(_ context.Context, _, accountID string) (*checkdecision.Account, error) {
 	if m.acct == nil || m.acct.ID != accountID {
 		return nil, nil
 	}
 	return m.acct, nil
 }
 
-func (m memAccounts) AccountOnParty(context.Context, string, string, string) (bool, error) {
-	return true, nil
-}
-
 type memPolicy struct{}
 
-func (memPolicy) ResolvePolicy(context.Context, string, string) (checkpay.Policy, error) {
-	return checkpay.Policy{}, nil
+func (memPolicy) ResolvePolicy(context.Context, string, string) (checkdecision.Policy, error) {
+	return checkdecision.Policy{}, nil
 }
 
 type memRegister struct {
-	item  *checkpay.RegisterItem
+	item  *checkdecision.RegisterItem
 	posts int
 	audit *memDecisions
 }
 
-func (m *memRegister) FindItem(context.Context, string, string, string) (*checkpay.RegisterItem, error) {
+func (m *memRegister) FindItem(context.Context, string, string, string) (*checkdecision.RegisterItem, error) {
 	return m.item, nil
 }
 
-func (m *memRegister) InsertBatch(context.Context, string, string, []checkpay.UploadItem, func(string) string) (checkpay.UploadBatchResult, error) {
-	return checkpay.UploadBatchResult{}, nil
-}
-
-func (m *memRegister) RecordPayment(_ context.Context, rec checkpay.PaymentRecord) (checkpay.Payment, error) {
+func (m *memRegister) RecordPayment(_ context.Context, rec checkposting.PaymentRecord) (checkposting.Payment, error) {
 	if m.item == nil {
-		return checkpay.Payment{}, checkpay.ErrCheckNotInRegister
+		return checkposting.Payment{}, checkposting.ErrCheckNotInRegister
 	}
 	if m.item.VoidedAt != nil {
-		return checkpay.Payment{}, checkpay.ErrCheckVoided
+		return checkposting.Payment{}, checkposting.ErrCheckVoided
 	}
 	if m.item.PaidAt != nil {
-		return checkpay.Payment{
+		return checkposting.Payment{
 			RegisterItemID: m.item.ID,
 			PaidAt:         *m.item.PaidAt,
 			CorrelationID:  m.item.PaidCorrelationID,
@@ -355,16 +308,16 @@ func (m *memRegister) RecordPayment(_ context.Context, rec checkpay.PaymentRecor
 	m.item.PaidCorrelationID = rec.CorrelationID
 	m.posts++
 	if m.audit != nil {
-		m.audit.events = append(m.audit.events, checkpay.CheckAuditEvent{
+		m.audit.events = append(m.audit.events, checkdecision.CheckAuditEvent{
 			ID:             "posted",
-			Kind:           checkpay.AuditKindPosted,
+			Kind:           checkdecision.AuditKindPosted,
 			RecordedAt:     time.Now().UTC(),
 			CorrelationID:  rec.CorrelationID,
 			RegisterItemID: m.item.ID,
-			Posted:         &checkpay.PostedAudit{PaidAt: stored},
+			Posted:         &checkdecision.PostedAudit{PaidAt: stored},
 		})
 	}
-	return checkpay.Payment{
+	return checkposting.Payment{
 		RegisterItemID: m.item.ID,
 		PaidAt:         stored,
 		CorrelationID:  rec.CorrelationID,
@@ -372,14 +325,14 @@ func (m *memRegister) RecordPayment(_ context.Context, rec checkpay.PaymentRecor
 }
 
 type memDecisions struct {
-	entries []checkpay.CheckAuditEntry
-	rows    []checkpay.RecordedDecision
-	events  []checkpay.CheckAuditEvent
+	entries []checkdecision.CheckAuditEntry
+	rows    []checkdecision.RecordedDecision
+	events  []checkdecision.CheckAuditEvent
 }
 
-func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkpay.CheckAuditEntry) (string, error) {
+func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkdecision.CheckAuditEntry) (string, error) {
 	m.entries = append(m.entries, entry)
-	rec := checkpay.RecordedDecision{
+	rec := checkdecision.RecordedDecision{
 		ID:             entry.CheckNumber,
 		Decision:       entry.Result.Decision,
 		Match:          entry.Result.Match,
@@ -390,13 +343,13 @@ func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkpay.Chec
 		LatencyMs:      entry.Result.LatencyMs,
 	}
 	m.rows = append(m.rows, rec)
-	m.events = append(m.events, checkpay.CheckAuditEvent{
+	m.events = append(m.events, checkdecision.CheckAuditEvent{
 		ID:             rec.ID,
-		Kind:           checkpay.AuditKindPresentment,
+		Kind:           checkdecision.AuditKindPresentment,
 		RecordedAt:     rec.DecidedAt,
 		CorrelationID:  rec.CorrelationID,
 		RegisterItemID: rec.RegisterItemID,
-		Presentment: &checkpay.PresentmentAudit{
+		Presentment: &checkdecision.PresentmentAudit{
 			Decision:   rec.Decision,
 			Match:      rec.Match,
 			Exceptions: rec.Exceptions,
@@ -406,30 +359,26 @@ func (m *memDecisions) WriteCheckDecision(_ context.Context, entry checkpay.Chec
 	return rec.ID, nil
 }
 
-func (m *memDecisions) ListCheckAudit(context.Context, string, string, string) ([]checkpay.CheckAuditEvent, error) {
-	out := make([]checkpay.CheckAuditEvent, len(m.events))
+func (m *memDecisions) ListCheckAudit(context.Context, string, string, string) ([]checkdecision.CheckAuditEvent, error) {
+	out := make([]checkdecision.CheckAuditEvent, len(m.events))
 	copy(out, m.events)
 	return out, nil
 }
 
-func (m *memDecisions) ListCheckDecisions(context.Context, string, string, string) ([]checkpay.RecordedDecision, error) {
-	out := make([]checkpay.RecordedDecision, len(m.rows))
+func (m *memDecisions) ListCheckDecisions(context.Context, string, string, string) ([]checkdecision.RecordedDecision, error) {
+	out := make([]checkdecision.RecordedDecision, len(m.rows))
 	copy(out, m.rows)
 	return out, nil
 }
 
-func newTestService(reg *memRegister, log *memDecisions) *checkpay.Service {
+func newTestServices(reg *memRegister, log *memDecisions) (*checkdecision.Service, *checkposting.Service) {
 	reg.audit = log
-	return checkpay.NewService(
-		memAccounts{acct: &checkpay.Account{
-			ID:                 testAccountID,
-			FIID:               testFIID,
-			PartyID:            "party-1",
-			Active:             true,
-			PositivePayEnabled: true,
-		}},
-		reg,
-		memPolicy{},
-		log,
-	)
+	accounts := memAccounts{acct: &checkdecision.Account{
+		ID:                 testAccountID,
+		FIID:               testFIID,
+		PartyID:            "party-1",
+		Active:             true,
+		PositivePayEnabled: true,
+	}}
+	return checkdecision.NewService(accounts, reg, memPolicy{}, log), checkposting.NewService(accounts, reg)
 }

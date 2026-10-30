@@ -1,13 +1,13 @@
-package registerupload
+package checkregister
 
 import (
-	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/registerbatch"
 	upload "github.com/dmmoody/poz-pay/internal/registerupload"
 )
 
 // Handler serves check-register intake. JSON and CSV share one route.
 type Handler struct {
-	Checks         *paysvc.Service
+	Batches        *registerbatch.Service
 	Uploads        *upload.Service
 	MaxUploadBytes int64
 }

@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func TestAccept_rejectsTenantAndHeader(t *testing.T) {
@@ -171,7 +171,7 @@ func (f *fakeTenants) Accounts(context.Context, string, string) (map[string]stri
 }
 
 type savedBatch struct {
-	items      []checkpay.UploadItem
+	items      []store.UploadItem
 	rejections []Rejection
 	through    int
 }
@@ -190,7 +190,7 @@ type fakeRecords struct {
 	chunkRead     bool
 	completed     bool
 	failed        string
-	items         []checkpay.UploadItem
+	items         []store.UploadItem
 	rejections    []Rejection
 	batches       []savedBatch
 }
@@ -246,7 +246,7 @@ func (f *fakeRecords) SetIngesting(context.Context, string, string) error { retu
 
 func (f *fakeRecords) RejectionCount(context.Context, string) (int, error) { return 0, nil }
 
-func (f *fakeRecords) InsertItem(_ context.Context, _, _, _ string, item checkpay.UploadItem, _ string) error {
+func (f *fakeRecords) InsertItem(_ context.Context, _, _, _ string, item store.UploadItem, _ string) error {
 	f.items = append(f.items, item)
 	return nil
 }

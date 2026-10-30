@@ -8,7 +8,7 @@ import (
 	"io"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 const fileChunkBytes = 256 << 10
@@ -149,7 +149,7 @@ func (w rowWriter) RejectionCount(ctx context.Context) (int, error) {
 	return w.tx.RejectionCount(ctx, w.id)
 }
 
-func (w rowWriter) InsertItem(ctx context.Context, item checkpay.UploadItem, payeeNormalized string) error {
+func (w rowWriter) InsertItem(ctx context.Context, item store.UploadItem, payeeNormalized string) error {
 	return w.tx.InsertItem(ctx, w.row.BatchID, w.row.FIID, w.row.PartyID, item, payeeNormalized)
 }
 

@@ -1,4 +1,4 @@
-package checkpay
+package checkdecision
 
 import (
 	"encoding/json"
@@ -7,7 +7,8 @@ import (
 	"strings"
 	"time"
 
-	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/api/response"
+	decisionsvc "github.com/dmmoody/poz-pay/internal/checkdecision"
 	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
@@ -32,7 +33,7 @@ func (h Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid JSON body")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid JSON body")
 		return
 	}
 
@@ -41,38 +42,38 @@ func (h Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	req.AccountID = strings.TrimSpace(req.AccountID)
 
 	if req.FIID == "" || req.AccountID == "" {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and account_id are required")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and account_id are required")
 		return
 	}
-	if !looksLikeUUID(req.FIID) || !looksLikeUUID(req.AccountID) {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and account_id must be UUIDs")
+	if !response.LooksLikeUUID(req.FIID) || !response.LooksLikeUUID(req.AccountID) {
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and account_id must be UUIDs")
 		return
 	}
 
 	switch req.Rail {
 	case decision.RailACH:
-		writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "ACH decide not implemented yet")
+		response.WriteError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "ACH decide not implemented yet")
 		return
 	case decision.RailCheck:
 	default:
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "rail must be check or ach")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "rail must be check or ach")
 		return
 	}
 
 	if req.Check == nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check payload required when rail=check")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check payload required when rail=check")
 		return
 	}
 	if strings.TrimSpace(req.Check.CheckNumber) == "" {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.check_number is required")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.check_number is required")
 		return
 	}
 	if req.Check.Amount < 0 {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.amount must be >= 0")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.amount must be >= 0")
 		return
 	}
 
-	presented := paysvc.PresentedCheck{
+	presented := decisionsvc.PresentedCheck{
 		CheckNumber: strings.TrimSpace(req.Check.CheckNumber),
 		Amount:      req.Check.Amount,
 		Payee:       req.Check.Payee,
@@ -80,13 +81,13 @@ func (h Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	if d := strings.TrimSpace(req.Check.IssueDate); d != "" {
 		t, err := time.Parse("2006-01-02", d)
 		if err != nil {
-			writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.issue_date must be YYYY-MM-DD")
+			response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "check.issue_date must be YYYY-MM-DD")
 			return
 		}
 		presented.IssueDate = &t
 	}
 
-	result, err := h.Checks.Decide(r.Context(), paysvc.DecideInput{
+	result, err := h.Decisions.Decide(r.Context(), decisionsvc.DecideInput{
 		FIID:          req.FIID,
 		AccountID:     req.AccountID,
 		CorrelationID: strings.TrimSpace(req.CorrelationID),
@@ -94,12 +95,12 @@ func (h Handler) Decide(w http.ResponseWriter, r *http.Request) {
 		RawRequest:    req,
 	})
 	if err != nil {
-		if errors.Is(err, paysvc.ErrFINotFound) {
-			writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
+		if errors.Is(err, decisionsvc.ErrFINotFound) {
+			response.WriteError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
 			return
 		}
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "decide failed")
+		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "decide failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, result)
+	response.WriteJSON(w, http.StatusOK, result)
 }

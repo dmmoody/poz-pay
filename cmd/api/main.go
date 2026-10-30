@@ -12,12 +12,15 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/api"
-	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
+	decisionhttp "github.com/dmmoody/poz-pay/internal/api/checkdecision"
+	postinghttp "github.com/dmmoody/poz-pay/internal/api/checkposting"
+	"github.com/dmmoody/poz-pay/internal/api/checkregister"
 	"github.com/dmmoody/poz-pay/internal/api/health"
-	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
 	"github.com/dmmoody/poz-pay/internal/broker"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/checkdecision"
+	"github.com/dmmoody/poz-pay/internal/checkposting"
 	"github.com/dmmoody/poz-pay/internal/outbox"
+	"github.com/dmmoody/poz-pay/internal/registerbatch"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
 	"github.com/dmmoody/poz-pay/internal/store"
 )
@@ -56,7 +59,9 @@ func main() {
 	registers := store.NewCheckRegister(db)
 	checkSettings := store.NewCheckSettings(db)
 	audits := store.NewCheckAudit(db)
-	checks := checkpay.NewService(tenants, registers, checkSettings, audits)
+	decisions := checkdecision.NewService(tenants, registers, checkSettings, audits)
+	postings := checkposting.NewService(tenants, registers)
+	batches := registerbatch.NewService(tenants, registers)
 	uploads := registerupload.NewService(tenants, store.NewRegisterUploads(db), maxUpload)
 	relay := outbox.NewRelay(store.NewOutbox(db), broker, time.Second)
 
@@ -70,10 +75,11 @@ func main() {
 	go relay.Run(workerCtx)
 
 	srv := api.NewServer(addr, api.Routes{
-		Health: health.Handler{DB: db},
-		Checks: payhttp.Handler{Checks: checks},
-		Registers: reghttp.Handler{
-			Checks:         checks,
+		Health:    health.Handler{DB: db},
+		Decisions: decisionhttp.Handler{Decisions: decisions},
+		Postings:  postinghttp.Handler{Postings: postings},
+		Registers: checkregister.Handler{
+			Batches:        batches,
 			Uploads:        uploads,
 			MaxUploadBytes: maxUpload,
 		},

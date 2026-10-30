@@ -1,4 +1,4 @@
-package registerupload
+package checkregister
 
 import (
 	"errors"
@@ -6,19 +6,20 @@ import (
 	"net/http"
 	"time"
 
-	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/api/response"
 	upload "github.com/dmmoody/poz-pay/internal/registerupload"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func (h Handler) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) {
 	if h.Uploads == nil {
-		writeError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
+		response.WriteError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
 		return
 	}
 	fiID := r.PathValue("fi_id")
 	partyID := r.PathValue("party_id")
-	if !looksLikeUUID(fiID) || !looksLikeUUID(partyID) {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and party_id must be UUIDs")
+	if !response.LooksLikeUUID(fiID) || !response.LooksLikeUUID(partyID) {
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id and party_id must be UUIDs")
 		return
 	}
 	max := h.MaxUploadBytes
@@ -30,7 +31,7 @@ func (h Handler) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) 
 		if writeUploadErr(w, err) {
 			return
 		}
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "multipart form is invalid")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "multipart form is invalid")
 		return
 	}
 	defer func() {
@@ -40,7 +41,7 @@ func (h Handler) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) 
 	}()
 	file, hdr, err := r.FormFile("file")
 	if err != nil {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file field is required")
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "file field is required")
 		return
 	}
 	defer file.Close()
@@ -55,22 +56,22 @@ func (h Handler) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload failed")
+		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload failed")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, uploadAcceptedJSON(accepted))
+	response.WriteJSON(w, http.StatusAccepted, uploadAcceptedJSON(accepted))
 }
 
 func (h Handler) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request) {
 	if h.Uploads == nil {
-		writeError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
+		response.WriteError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
 		return
 	}
 	fiID := r.PathValue("fi_id")
 	partyID := r.PathValue("party_id")
 	uploadID := r.PathValue("upload_id")
-	if !looksLikeUUID(fiID) || !looksLikeUUID(partyID) || !looksLikeUUID(uploadID) {
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id, party_id, and upload_id must be UUIDs")
+	if !response.LooksLikeUUID(fiID) || !response.LooksLikeUUID(partyID) || !response.LooksLikeUUID(uploadID) {
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id, party_id, and upload_id must be UUIDs")
 		return
 	}
 	found, err := h.Uploads.Get(r.Context(), fiID, partyID, uploadID)
@@ -78,10 +79,10 @@ func (h Handler) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	if err != nil {
-		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload lookup failed")
+		response.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload lookup failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, uploadStatusJSON(found))
+	response.WriteJSON(w, http.StatusOK, uploadStatusJSON(found))
 }
 
 func writeUploadErr(w http.ResponseWriter, err error) bool {
@@ -90,19 +91,19 @@ func writeUploadErr(w http.ResponseWriter, err error) bool {
 	case err == nil:
 		return false
 	case errors.As(err, &maxErr), errors.Is(err, upload.ErrTooLarge):
-		writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "file exceeds the upload limit")
+		response.WriteError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "file exceeds the upload limit")
 	case errors.Is(err, upload.ErrInvalidCSV):
-		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-	case errors.Is(err, paysvc.ErrFINotFound):
-		writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
-	case errors.Is(err, paysvc.ErrPartyNotFound):
-		writeError(w, http.StatusNotFound, "PARTY_NOT_FOUND", err.Error())
+		response.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+	case errors.Is(err, store.ErrInstitutionNotFound):
+		response.WriteError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
+	case errors.Is(err, store.ErrPartyNotFound):
+		response.WriteError(w, http.StatusNotFound, "PARTY_NOT_FOUND", err.Error())
 	case errors.Is(err, upload.ErrFIInactive):
-		writeError(w, http.StatusConflict, "FI_INACTIVE", err.Error())
+		response.WriteError(w, http.StatusConflict, "FI_INACTIVE", err.Error())
 	case errors.Is(err, upload.ErrRoutingNumberRequired):
-		writeError(w, http.StatusUnprocessableEntity, "ROUTING_NUMBER_REQUIRED", err.Error())
+		response.WriteError(w, http.StatusUnprocessableEntity, "ROUTING_NUMBER_REQUIRED", err.Error())
 	case errors.Is(err, upload.ErrUploadNotFound):
-		writeError(w, http.StatusNotFound, "UPLOAD_NOT_FOUND", err.Error())
+		response.WriteError(w, http.StatusNotFound, "UPLOAD_NOT_FOUND", err.Error())
 	default:
 		return false
 	}

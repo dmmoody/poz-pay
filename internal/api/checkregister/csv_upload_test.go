@@ -1,4 +1,4 @@
-package api
+package checkregister_test
 
 import (
 	"bytes"
@@ -12,9 +12,10 @@ import (
 	"testing"
 	"time"
 
-	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/api"
+	"github.com/dmmoody/poz-pay/internal/api/checkregister"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 const (
@@ -25,8 +26,8 @@ const (
 func TestUploadCSV_acceptsCanonicalFile(t *testing.T) {
 	t.Parallel()
 	repo := &memStore{}
-	srv := httptest.NewServer(NewRouter(Routes{
-		Registers: reghttp.Handler{
+	srv := httptest.NewServer(api.NewRouter(api.Routes{
+		Registers: checkregister.Handler{
 			Uploads:        registerupload.NewService(&memTenants{}, repo, 1<<20),
 			MaxUploadBytes: 1 << 20,
 		},
@@ -48,8 +49,8 @@ func TestUploadCSV_acceptsCanonicalFile(t *testing.T) {
 func TestUploadCSV_rejectsBadHeader(t *testing.T) {
 	t.Parallel()
 	repo := &memStore{}
-	srv := httptest.NewServer(NewRouter(Routes{
-		Registers: reghttp.Handler{
+	srv := httptest.NewServer(api.NewRouter(api.Routes{
+		Registers: checkregister.Handler{
 			Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
 		},
 	}))
@@ -67,9 +68,9 @@ func TestUploadCSV_rejectsBadHeader(t *testing.T) {
 
 func TestUploadCSV_unknownInstitution(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(NewRouter(Routes{
-		Registers: reghttp.Handler{
-			Uploads: registerupload.NewService(&memTenants{err: checkpay.ErrFINotFound}, &memStore{}, 1<<20),
+	srv := httptest.NewServer(api.NewRouter(api.Routes{
+		Registers: checkregister.Handler{
+			Uploads: registerupload.NewService(&memTenants{err: store.ErrInstitutionNotFound}, &memStore{}, 1<<20),
 		},
 	}))
 	t.Cleanup(srv.Close)
@@ -88,8 +89,8 @@ func TestGetCheckRegisterUpload(t *testing.T) {
 		ReceivedAt: time.Date(2026, 10, 29, 15, 0, 0, 0, time.UTC),
 		Rejections: []registerupload.Rejection{{Row: 2, Code: "unknown_account", Message: "missing"}},
 	}}
-	srv := httptest.NewServer(NewRouter(Routes{
-		Registers: reghttp.Handler{
+	srv := httptest.NewServer(api.NewRouter(api.Routes{
+		Registers: checkregister.Handler{
 			Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
 		},
 	}))
@@ -106,7 +107,7 @@ func TestGetCheckRegisterUpload(t *testing.T) {
 
 func TestJSONRegisterUpload_stillRejectedWithoutItems(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(NewRouter(Routes{}))
+	srv := httptest.NewServer(api.NewRouter(api.Routes{}))
 	t.Cleanup(srv.Close)
 	res, err := http.Post(srv.URL+"/v1/fis/"+csvFIID+"/parties/"+csvPartyID+"/check-registers", "application/json", strings.NewReader(`{"format":"json","items":[]}`))
 	if err != nil {
@@ -231,7 +232,7 @@ func (m *memStore) SetIngesting(context.Context, string, string) error { return 
 
 func (m *memStore) RejectionCount(context.Context, string) (int, error) { return 0, nil }
 
-func (m *memStore) InsertItem(context.Context, string, string, string, checkpay.UploadItem, string) error {
+func (m *memStore) InsertItem(context.Context, string, string, string, store.UploadItem, string) error {
 	return nil
 }
 

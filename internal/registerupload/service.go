@@ -27,7 +27,7 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/checkcsv"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/payee"
 	"github.com/dmmoody/poz-pay/internal/store"
 )
 
@@ -154,7 +154,7 @@ func (s *Service) Accept(ctx context.Context, in AcceptInput) (Upload, error) {
 		return Upload{}, ErrFIInactive
 	}
 	if !customer.PartyActive {
-		return Upload{}, checkpay.ErrPartyNotFound
+		return Upload{}, store.ErrPartyNotFound
 	}
 	if customer.RoutingNumber == "" {
 		return Upload{}, ErrRoutingNumberRequired
@@ -358,7 +358,7 @@ func classify(rec checkcsv.Record, routingNumber string, accounts map[string]str
 	return CommittedRow{
 		Row:             rec.Row,
 		Item:            &item,
-		NormalizedPayee: checkpay.NormalizePayee(rec.Payee),
+		NormalizedPayee: payee.Normalize(rec.Payee),
 	}
 }
 

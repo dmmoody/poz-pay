@@ -1,9 +1,10 @@
-package checkpay
+package checkdecision
 
 import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/decision"
+	"github.com/dmmoody/poz-pay/internal/payee"
 )
 
 // PresentedCheck is the inbound presented item.
@@ -81,10 +82,10 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 		})
 	}
 
-	presentedPayee := NormalizePayee(presented.Payee)
+	presentedPayee := payee.Normalize(presented.Payee)
 	issuedPayee := item.PayeeNormalized
 	if issuedPayee == "" {
-		issuedPayee = NormalizePayee(item.Payee)
+		issuedPayee = payee.Normalize(item.Payee)
 	}
 	if presentedPayee != issuedPayee {
 		excs = append(excs, decision.Exception{

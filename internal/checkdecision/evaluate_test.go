@@ -1,15 +1,15 @@
-package checkpay_test
+package checkdecision_test
 
 import (
 	"testing"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/checkdecision"
 	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
-func activeAcct() *checkpay.Account {
-	return &checkpay.Account{
+func activeAcct() *checkdecision.Account {
+	return &checkdecision.Account{
 		ID:                 "acct-1",
 		FIID:               "fi-1",
 		PartyID:            "party-1",
@@ -18,8 +18,8 @@ func activeAcct() *checkpay.Account {
 	}
 }
 
-func issued(mod func(*checkpay.RegisterItem)) *checkpay.RegisterItem {
-	item := &checkpay.RegisterItem{
+func issued(mod func(*checkdecision.RegisterItem)) *checkdecision.RegisterItem {
+	item := &checkdecision.RegisterItem{
 		ID:              "reg-1001",
 		CheckNumber:     "1001",
 		Amount:          10000,
@@ -34,13 +34,13 @@ func issued(mod func(*checkpay.RegisterItem)) *checkpay.RegisterItem {
 
 func TestEvaluateCheck_GateFails(t *testing.T) {
 	t.Parallel()
-	presented := checkpay.PresentedCheck{CheckNumber: "1001", Amount: 10000, Payee: "ACME SUPPLIES LLC"}
-	pol := checkpay.Policy{}
+	presented := checkdecision.PresentedCheck{CheckNumber: "1001", Amount: 10000, Payee: "ACME SUPPLIES LLC"}
+	pol := checkdecision.Policy{}
 	asOf := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
 
 	t.Run("nil account", func(t *testing.T) {
 		t.Parallel()
-		r := checkpay.EvaluateCheck(nil, nil, presented, pol, asOf)
+		r := checkdecision.EvaluateCheck(nil, nil, presented, pol, asOf)
 		assertGate(t, r, decision.CodeAccountNotOurs)
 	})
 
@@ -48,20 +48,20 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 		t.Parallel()
 		acct := activeAcct()
 		acct.Active = false
-		r := checkpay.EvaluateCheck(acct, issued(nil), presented, pol, asOf)
+		r := checkdecision.EvaluateCheck(acct, issued(nil), presented, pol, asOf)
 		assertGate(t, r, decision.CodeAccountInactive)
 	})
 
 	t.Run("not in register", func(t *testing.T) {
 		t.Parallel()
-		r := checkpay.EvaluateCheck(activeAcct(), nil, presented, pol, asOf)
+		r := checkdecision.EvaluateCheck(activeAcct(), nil, presented, pol, asOf)
 		assertGate(t, r, decision.CodeCheckNotInRegister)
 	})
 
 	t.Run("voided", func(t *testing.T) {
 		t.Parallel()
 		now := time.Now().UTC()
-		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
+		r := checkdecision.EvaluateCheck(activeAcct(), issued(func(i *checkdecision.RegisterItem) {
 			i.VoidedAt = &now
 		}), presented, pol, asOf)
 		assertGate(t, r, decision.CodeCheckVoided)
@@ -70,7 +70,7 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 	t.Run("already paid", func(t *testing.T) {
 		t.Parallel()
 		now := time.Now().UTC()
-		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
+		r := checkdecision.EvaluateCheck(activeAcct(), issued(func(i *checkdecision.RegisterItem) {
 			i.PaidAt = &now
 		}), presented, pol, asOf)
 		assertGate(t, r, decision.CodeCheckAlreadyPaid)
@@ -80,15 +80,15 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 func TestEvaluateCheck_Expired(t *testing.T) {
 	t.Parallel()
 	issue := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	item := issued(func(i *checkpay.RegisterItem) {
+	item := issued(func(i *checkdecision.RegisterItem) {
 		i.IssueDate = &issue
 	})
-	presented := checkpay.PresentedCheck{CheckNumber: "1001", Amount: 10000, Payee: "ACME SUPPLIES LLC"}
+	presented := checkdecision.PresentedCheck{CheckNumber: "1001", Amount: 10000, Payee: "ACME SUPPLIES LLC"}
 
 	t.Run("default 180 past", func(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 181)
-		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{}, asOf)
+		r := checkdecision.EvaluateCheck(activeAcct(), item, presented, checkdecision.Policy{}, asOf)
 		assertGate(t, r, decision.CodeCheckExpired)
 		if r.Exceptions[0].Facts["age_days"] != 181 || r.Exceptions[0].Facts["max_age_days"] != 180 {
 			t.Fatalf("facts=%+v", r.Exceptions[0].Facts)
@@ -98,21 +98,21 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 	t.Run("default 180 on boundary still pay", func(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 180)
-		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{}, asOf)
+		r := checkdecision.EvaluateCheck(activeAcct(), item, presented, checkdecision.Policy{}, asOf)
 		assertRegisterMatch(t, r, "reg-1001")
 	})
 
 	t.Run("fi 60 days", func(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 61)
-		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{MaxAgeDays: 60}, asOf)
+		r := checkdecision.EvaluateCheck(activeAcct(), item, presented, checkdecision.Policy{MaxAgeDays: 60}, asOf)
 		assertGate(t, r, decision.CodeCheckExpired)
 	})
 
 	t.Run("no issue_date skips expiry", func(t *testing.T) {
 		t.Parallel()
 		asOf := time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC)
-		r := checkpay.EvaluateCheck(activeAcct(), issued(nil), presented, checkpay.Policy{MaxAgeDays: 1}, asOf)
+		r := checkdecision.EvaluateCheck(activeAcct(), issued(nil), presented, checkdecision.Policy{MaxAgeDays: 1}, asOf)
 		assertRegisterMatch(t, r, "reg-1001")
 	})
 }
@@ -120,11 +120,11 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 func TestEvaluateCheck_MismatchAccumulate(t *testing.T) {
 	t.Parallel()
 	asOf := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	r := checkpay.EvaluateCheck(activeAcct(), issued(nil), checkpay.PresentedCheck{
+	r := checkdecision.EvaluateCheck(activeAcct(), issued(nil), checkdecision.PresentedCheck{
 		CheckNumber: "1001",
 		Amount:      10050,
 		Payee:       "ACME SUPPLIES",
-	}, checkpay.Policy{}, asOf)
+	}, checkdecision.Policy{}, asOf)
 	if r.Decision != decision.DecisionReview {
 		t.Fatalf("decision=%s want review", r.Decision)
 	}
@@ -144,11 +144,11 @@ func TestEvaluateCheck_MismatchAccumulate(t *testing.T) {
 func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
 	t.Parallel()
 	asOf := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	r := checkpay.EvaluateCheck(activeAcct(), issued(nil), checkpay.PresentedCheck{
+	r := checkdecision.EvaluateCheck(activeAcct(), issued(nil), checkdecision.PresentedCheck{
 		CheckNumber: "1001",
 		Amount:      10050,
 		Payee:       "ACME SUPPLIES LLC",
-	}, checkpay.Policy{ReturnOnMismatch: true}, asOf)
+	}, checkdecision.Policy{ReturnOnMismatch: true}, asOf)
 	if r.Decision != decision.DecisionReturn {
 		t.Fatalf("decision=%s want return", r.Decision)
 	}
@@ -165,20 +165,12 @@ func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
 func TestEvaluateCheck_Pay(t *testing.T) {
 	t.Parallel()
 	asOf := time.Date(2026, 10, 16, 12, 0, 0, 0, time.UTC)
-	r := checkpay.EvaluateCheck(activeAcct(), issued(nil), checkpay.PresentedCheck{
+	r := checkdecision.EvaluateCheck(activeAcct(), issued(nil), checkdecision.PresentedCheck{
 		CheckNumber: "1001",
 		Amount:      10000,
 		Payee:       "  acme   supplies  llc ",
-	}, checkpay.Policy{}, asOf)
+	}, checkdecision.Policy{}, asOf)
 	assertRegisterMatch(t, r, "reg-1001")
-}
-
-func TestNormalizePayee(t *testing.T) {
-	t.Parallel()
-	got := checkpay.NormalizePayee("  acme   supplies  llc ")
-	if got != "ACME SUPPLIES LLC" {
-		t.Fatalf("got %q", got)
-	}
 }
 
 func assertGate(t *testing.T, r decision.Result, code string) {
