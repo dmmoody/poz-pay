@@ -15,11 +15,11 @@ import (
 	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
 	"github.com/dmmoody/poz-pay/internal/api/health"
 	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
-	"github.com/dmmoody/poz-pay/internal/broker/rabbitmq"
+	"github.com/dmmoody/poz-pay/internal/broker"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
 	"github.com/dmmoody/poz-pay/internal/outbox"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
-	"github.com/dmmoody/poz-pay/internal/store/postgres"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func main() {
@@ -35,15 +35,14 @@ func main() {
 	maxUpload := envInt64("CHECK_REGISTER_MAX_UPLOAD_BYTES", registerupload.DefaultMaxUploadBytes)
 
 	ctx := context.Background()
-	db, err := postgres.Open(ctx, dbURL)
+	db, err := store.Open(ctx, dbURL)
 	if err != nil {
 		log.Fatalf("database: %v", err)
 	}
 	defer db.Close()
 
-	// RabbitMQ is the broker in this process. Publish and Listen are the seam
-	// another broker (for example Google Pub/Sub) would implement instead.
-	broker, err := rabbitmq.New(rabbitURL, rabbitmq.Topology{
+	// RabbitMQ is the broker in this process.
+	broker, err := broker.New(rabbitURL, broker.Topology{
 		Exchange:    "pozpay.events",
 		Queue:       "pozpay.check-register.ingest",
 		RoutingKeys: []string{registerupload.TopicUploadAccepted},
@@ -53,13 +52,13 @@ func main() {
 	}
 	defer broker.Close()
 
-	tenants := postgres.NewTenants(db)
-	registers := postgres.NewCheckRegister(db)
-	checkSettings := postgres.NewCheckSettings(db)
-	audits := postgres.NewCheckAudit(db)
+	tenants := store.NewTenants(db)
+	registers := store.NewCheckRegister(db)
+	checkSettings := store.NewCheckSettings(db)
+	audits := store.NewCheckAudit(db)
 	checks := checkpay.NewService(tenants, registers, checkSettings, audits)
-	uploads := registerupload.NewService(tenants, postgres.NewRegisterUploads(db), maxUpload)
-	relay := outbox.NewRelay(postgres.NewOutbox(db), broker, time.Second)
+	uploads := registerupload.NewService(tenants, store.NewRegisterUploads(db), maxUpload)
+	relay := outbox.NewRelay(store.NewOutbox(db), broker, time.Second)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	defer stopWorkers()

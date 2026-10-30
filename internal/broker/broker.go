@@ -1,3 +1,5 @@
+// Package broker is the message broker for this process. RabbitMQ is the engine.
+// Publisher and Listener are the seam another broker can implement.
 package broker
 
 import "context"
@@ -13,3 +15,8 @@ type Publisher interface {
 type Listener interface {
 	Listen(ctx context.Context, topic string, handle func(context.Context, []byte) error) error
 }
+
+var (
+	_ Publisher = (*Client)(nil)
+	_ Listener  = (*Client)(nil)
+)

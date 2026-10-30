@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/dmmoody/poz-pay/internal/registerupload"
-	"github.com/dmmoody/poz-pay/internal/store/postgres"
+	"github.com/dmmoody/poz-pay/internal/store"
 )
 
 func TestService_ingestAndResume(t *testing.T) {
@@ -47,8 +47,8 @@ func TestService_ingestAndResume(t *testing.T) {
 		t.Fatalf("account: %v", err)
 	}
 
-	records := postgres.NewRegisterUploads(db)
-	tenants := postgres.NewTenants(db)
+	records := store.NewRegisterUploads(db)
+	tenants := store.NewTenants(db)
 	svc := registerupload.NewService(tenants, records, 1<<20)
 	body := strings.Join([]string{
 		"routing_number,account_number,check_number,amount,payee,issue_date,void",
@@ -162,7 +162,7 @@ func testDatabase(t *testing.T) *sql.DB {
 	if url == "" {
 		t.Skip("DATABASE_URL not set")
 	}
-	db, err := postgres.Open(context.Background(), url)
+	db, err := store.Open(context.Background(), url)
 	if err != nil {
 		t.Fatalf("database: %v", err)
 	}
