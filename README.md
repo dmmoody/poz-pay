@@ -27,10 +27,10 @@ curl -s localhost:8080/healthz
 
 Postgres 18 mounts the volume at `/var/lib/postgresql` (not `.../data`).
 
-Host API against Docker Postgres only:
+Host API against Docker Postgres and RabbitMQ:
 
 ```bash
-make db-up migrate
+make infra migrate
 make run
 ```
 
@@ -38,20 +38,22 @@ make run
 
 | Target | Purpose |
 |--------|---------|
-| `make up` | Build/start stack, migrate, and seed |
+| `make up` | Build/start stack (Postgres, RabbitMQ, API), migrate, and seed |
 | `make down` | Stop stack (keep DB volume) |
 | `make destroy` | Stop stack and delete DB volume |
+| `make infra` | Postgres and RabbitMQ for a host API |
 | `make db-up` | Postgres only |
 | `make migrate` | Apply migrations |
 | `make migrate-down` | Roll back one migration |
 | `make migrate-version` | Show migration version |
 | `make psql` | Shell into `psql` |
-| `make seed` | Run `scripts/seed.sql` |
-| `make run` | Run API on host |
+| `make seed` | Load demo institutions and the registers that ship already on the books |
+| `make run` | Run API on host (needs Postgres and RabbitMQ) |
 | `make test` / `make fmt` | Tests / format |
 
 ## Layout
 
-- `cmd/api` — HTTP composition root
+- `cmd/api` — HTTP composition root (API, outbox relay, ingest consumer)
 - `migrations/` — ordered SQL (golang-migrate via Compose profile `tools`)
-- `docker-compose.yml` — Postgres 18 + API + migrate tool
+- `samples/check-registers/` — CSV files. Seed loads treasury and Beta. Acme Operating is left for upload
+- `docker-compose.yml` — Postgres 18 + RabbitMQ + API + migrate tool

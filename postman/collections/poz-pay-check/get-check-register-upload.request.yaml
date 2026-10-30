@@ -1,0 +1,12 @@
+$kind: "http-request"
+url: '{{base_url}}/v1/fis/:fi_id/parties/:party_id/check-register-uploads/:upload_id'
+method: GET
+order: 5200
+pathVariables:
+  - key: fi_id
+    value: '{{fi_id}}'
+  - key: party_id
+    value: '{{party_id}}'
+  - key: upload_id
+    value: '{{upload_id}}'
+examples: './.resources/get-check-register-upload.resources/examples'

@@ -67,7 +67,11 @@ The paying system records settlement with `POST /v1/fis/{fi_id}/accounts/{accoun
 
 ## Upload API
 
-See [decision-api.md](decision-api.md)#check-register-upload.
+JSON: [decision-api.md](decision-api.md#check-register-upload). The request inserts the batch before it returns.
+
+CSV: the same URL with `multipart/form-data`. The customer is the party under the institution. The institution must have a routing number stored, and each row's `routing_number` must equal it. `account_number` is the external account number on that customer. The canonical header is fixed until column mapping exists. The request stores the file and returns `202`; a worker ingests rows in batches after RabbitMQ delivers `check_register.upload.accepted`. Another broker can replace RabbitMQ behind the same publish and listen methods. See [decision-api.md](decision-api.md) for the header, statuses, and rejection codes.
+
+Sample files live in [`samples/check-registers/`](../samples/check-registers/). Seed loads Acme Treasury and Beta Operating. Acme Operating is left for this upload.
 
 ## Audit
 

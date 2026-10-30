@@ -243,7 +243,11 @@ One stream for the check, oldest recorded first. `kind` is `presentment` or `pos
 
 ## Check register upload
 
+JSON upload writes the batch in the request. CSV upload stores the file and returns immediately; a worker ingests rows after a broker message. Column mapping is not available yet: a CSV must already use the canonical header. A later map should rewrite a customer's columns onto that header before the same pipeline.
+
 ### `POST /v1/fis/{fi_id}/parties/{party_id}/check-registers`
+
+`Content-Type: application/json`
 
 ```json
 {
@@ -261,7 +265,7 @@ One stream for the check, oldest recorded first. `kind` is `presentment` or `pos
 }
 ```
 
-`format`: `json` (spike). CSV may be added later as `multipart/form-data`.
+`format`: `json`. `amount` is minor units.
 
 #### Response `201`
 
@@ -275,6 +279,92 @@ One stream for the check, oldest recorded first. `kind` is `presentment` or `pos
 ```
 
 Per-item reject (unknown account, duplicate active check number) appears in `errors[]` without failing the whole batch unless `strict: true` (optional request flag; default false).
+
+### `POST /v1/fis/{fi_id}/parties/{party_id}/check-registers` (CSV)
+
+`Content-Type: multipart/form-data` with a single file field named `file`.
+
+The customer is the party. The party must belong to the institution. The institution must be active and have its routing number stored. Every data row's `routing_number` must equal that stored number. `account_number` is `accounts.external_account_number` for an account on that customer, not an internal account id.
+
+Canonical header (names required, order may vary; extra columns are rejected until column mapping exists):
+
+```text
+routing_number,account_number,check_number,amount,payee,issue_date,void
+```
+
+| Column | Required cell | Notes |
+|--------|---------------|-------|
+| `routing_number` | yes | 9 digits. Must equal the institution's stored routing number |
+| `account_number` | yes | External account number on this customer. At most 34 characters |
+| `check_number` | yes | Leading zeros preserved. At most 32 characters |
+| `amount` | yes | Major units, at most 2 fractional digits (`100`, `100.50`, `$100.50`). Stored as minor units. No thousands separators |
+| `payee` | yes | At most 140 characters |
+| `issue_date` | no | `YYYY-MM-DD` when present |
+| `void` | no | Blank, `true`/`false`, `yes`/`no`, `y`/`n`, `1`/`0` |
+
+The request stores the bytes and an outbox row, then returns. It does not parse every data row. Default max size is 64 MiB (`CHECK_REGISTER_MAX_UPLOAD_BYTES`). A broken file stops ingest at the last committed batch; rows already accepted stay on the register. Upload the corrected file again. Duplicate active check numbers are rejected per row, so the rows that already landed are skipped and the rest can insert.
+
+[`samples/check-registers/acme-operating.csv`](../samples/check-registers/acme-operating.csv) is the file to upload. Seed already loads `acme-treasury.csv` and `beta-operating.csv`.
+
+#### Response `202`
+
+```json
+{
+  "upload_id": "44444444-4444-4444-4444-444444444444",
+  "fi_id": "11111111-1111-1111-1111-111111111111",
+  "party_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "routing_number": "011000015",
+  "filename": "acme-operating.csv",
+  "byte_size": 24811,
+  "sha256": "hex",
+  "status": "accepted",
+  "received_at": "2026-10-29T14:00:00Z"
+}
+```
+
+`status` moves `accepted` → `ingesting` → `completed` or `failed`. `accepted` means the file is stored and the outbox row exists, including while the broker has not delivered yet.
+
+| Status | When |
+|--------|------|
+| `400` `VALIDATION_ERROR` | Missing file, or the header is not canonical |
+| `404` `FI_NOT_FOUND` / `PARTY_NOT_FOUND` | Unknown institution, or the customer is not an active party of that institution |
+| `409` `FI_INACTIVE` | Institution is inactive |
+| `413` `PAYLOAD_TOO_LARGE` | File exceeds the limit |
+| `422` `ROUTING_NUMBER_REQUIRED` | Institution has no valid ABA routing number |
+
+### `GET /v1/fis/{fi_id}/parties/{party_id}/check-register-uploads/{upload_id}`
+
+Poll one CSV upload. `row` is 1-based among data records (the header is not a row). At most the first 100 rejections are stored; `rejections_truncated` is true when more rows were rejected than were kept.
+
+```json
+{
+  "upload_id": "44444444-4444-4444-4444-444444444444",
+  "fi_id": "11111111-1111-1111-1111-111111111111",
+  "party_id": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "routing_number": "011000015",
+  "filename": "acme-operating.csv",
+  "byte_size": 24811,
+  "sha256": "hex",
+  "status": "completed",
+  "batch_id": "55555555-5555-5555-5555-555555555555",
+  "accepted": 298,
+  "rejected": 2,
+  "rows_processed": 300,
+  "rejections_truncated": false,
+  "rejections": [
+    {
+      "row": 14,
+      "code": "unknown_account",
+      "message": "account number is not on this customer"
+    }
+  ],
+  "received_at": "2026-10-29T14:00:00Z"
+}
+```
+
+Rejection `code` values: `invalid_row`, `invalid_routing`, `invalid_account`, `invalid_check_number`, `invalid_amount`, `invalid_payee`, `invalid_date`, `invalid_void`, `routing_mismatch`, `unknown_account`, `duplicate_check`.
+
+`failed` means the worker could not keep splitting the file (for example a broken quote). `failure` explains that stop. `accepted` on that upload is the rows already written.
 
 ---
 
