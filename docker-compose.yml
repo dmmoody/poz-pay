@@ -11,12 +11,30 @@ services:
     volumes:
       # PG 18+: mount parent dir (versioned data lives under PGDATA subdirectory)
       - pozpay_pgdata:/var/lib/postgresql
+      - ./scripts:/seed:ro
+      - ./samples/check-registers:/registers:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-pozpay} -d ${POSTGRES_DB:-pozpay}"]
       interval: 3s
       timeout: 5s
       retries: 20
       start_period: 5s
+
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    container_name: pozpay-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-pozpay}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-pozpay}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
   migrate:
     image: migrate/migrate:v4.18.3
@@ -42,8 +60,12 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER:-pozpay}:${POSTGRES_PASSWORD:-pozpay}@postgres:5432/${POSTGRES_DB:-pozpay}?sslmode=disable
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-pozpay}:${RABBITMQ_PASSWORD:-pozpay}@rabbitmq:5672/
+      CHECK_REGISTER_MAX_UPLOAD_BYTES: ${CHECK_REGISTER_MAX_UPLOAD_BYTES:-67108864}
       API_ADDR: ${API_ADDR:-:8080}
     ports:
       - "${API_PORT:-8080}:8080"

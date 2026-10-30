@@ -3,7 +3,7 @@ MIGRATE_SERVICE ?= migrate
 POSTGRES_SERVICE ?= postgres
 API_SERVICE ?= api
 
-.PHONY: help up down destroy logs ps psql db-up migrate migrate-down migrate-version build run test fmt seed tidy docker-build
+.PHONY: help up down destroy logs ps psql db-up infra migrate migrate-down migrate-version build run test fmt seed tidy docker-build
 
 help: ## Show targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-18s %s\n", $$1, $$2}'
@@ -19,8 +19,11 @@ down: ## Stop and remove stack (keep DB volume)
 destroy: ## Stop stack and delete DB volume
 	$(COMPOSE) down -v
 
-db-up: ## Start Postgres only (for migrate / make run)
+db-up: ## Start Postgres only
 	$(COMPOSE) up -d $(POSTGRES_SERVICE)
+
+infra: ## Postgres and RabbitMQ for a host API
+	$(COMPOSE) up -d $(POSTGRES_SERVICE) rabbitmq
 
 docker-build: ## Build API image
 	$(COMPOSE) build $(API_SERVICE)
@@ -43,11 +46,13 @@ migrate-down: ## Roll back one migration
 migrate-version: ## Print current migration version
 	$(COMPOSE) --profile tools run --rm $(MIGRATE_SERVICE) version
 
-seed: ## Apply seed SQL (requires migrations)
-	$(COMPOSE) exec -T $(POSTGRES_SERVICE) psql -U $${POSTGRES_USER:-pozpay} -d $${POSTGRES_DB:-pozpay} -v ON_ERROR_STOP=1 -f - < scripts/seed.sql
+seed: ## Apply demo seed, including the registers that ship already loaded
+	$(COMPOSE) exec -T $(POSTGRES_SERVICE) psql -U $${POSTGRES_USER:-pozpay} -d $${POSTGRES_DB:-pozpay} -v ON_ERROR_STOP=1 -f /seed/seed.sql
+	$(COMPOSE) exec -T $(POSTGRES_SERVICE) psql -U $${POSTGRES_USER:-pozpay} -d $${POSTGRES_DB:-pozpay} -v ON_ERROR_STOP=1 -f /seed/seed-registers.sql
 
-run: ## Run API locally against published Postgres
+run: ## Run API locally against published Postgres and RabbitMQ
 	DATABASE_URL=$${DATABASE_URL:-postgres://pozpay:pozpay@localhost:5432/pozpay?sslmode=disable} \
+	RABBITMQ_URL=$${RABBITMQ_URL:-amqp://pozpay:pozpay@localhost:5672/} \
 	API_ADDR=$${API_ADDR:-:8080} \
 	go run ./cmd/api
 
