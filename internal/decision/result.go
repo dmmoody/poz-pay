@@ -1,4 +1,4 @@
-package decide
+package decision
 
 // Facts are closed, code-specific machine fields on an exception.
 // Keys and value types are normative per exception code (see docs/exceptions.md).

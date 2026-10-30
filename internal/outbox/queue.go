@@ -1,27 +1,25 @@
-package postgres
+package outbox
 
 import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	"github.com/dmmoody/poz-pay/internal/outbox"
 )
 
 // outboxErrorRunes bounds last_error. The column is unbounded text; the cap
 // keeps a broker error from storing an arbitrarily large string.
 const outboxErrorRunes = 500
 
-// OutboxStore is the durable unpublished-message queue.
-type OutboxStore struct {
+// Queue is the durable unpublished-message queue.
+type Queue struct {
 	db *sql.DB
 }
 
-func NewOutboxStore(db *sql.DB) *OutboxStore {
-	return &OutboxStore{db: db}
+func NewQueue(db *sql.DB) *Queue {
+	return &Queue{db: db}
 }
 
-func (s *OutboxStore) Pending(ctx context.Context, limit int) ([]outbox.Message, error) {
+func (s *Queue) Pending(ctx context.Context, limit int) ([]Message, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -36,9 +34,9 @@ func (s *OutboxStore) Pending(ctx context.Context, limit int) ([]outbox.Message,
 		return nil, fmt.Errorf("list outbox: %w", err)
 	}
 	defer rows.Close()
-	var out []outbox.Message
+	var out []Message
 	for rows.Next() {
-		var msg outbox.Message
+		var msg Message
 		if err := rows.Scan(&msg.ID, &msg.Topic, &msg.Body); err != nil {
 			return nil, fmt.Errorf("scan outbox: %w", err)
 		}
@@ -50,7 +48,7 @@ func (s *OutboxStore) Pending(ctx context.Context, limit int) ([]outbox.Message,
 	return out, nil
 }
 
-func (s *OutboxStore) MarkPublished(ctx context.Context, id string) error {
+func (s *Queue) MarkPublished(ctx context.Context, id string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE message_outbox
 		SET published_at = now(), attempts = attempts + 1, last_error = NULL
@@ -62,7 +60,7 @@ func (s *OutboxStore) MarkPublished(ctx context.Context, id string) error {
 	return nil
 }
 
-func (s *OutboxStore) RecordFailure(ctx context.Context, id, reason string) error {
+func (s *Queue) RecordFailure(ctx context.Context, id, reason string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE message_outbox
 		SET attempts = attempts + 1, last_error = $2
@@ -81,5 +79,3 @@ func clip(s string, n int) string {
 	}
 	return string(r[:n])
 }
-
-var _ outbox.Store = (*OutboxStore)(nil)

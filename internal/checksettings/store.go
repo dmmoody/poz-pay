@@ -1,26 +1,24 @@
-package postgres
+package checksettings
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-
-	"github.com/dmmoody/poz-pay/internal/checkpay"
 )
 
-// CheckSettingsStore loads FI/party check positive-pay policy.
-type CheckSettingsStore struct {
+// Store loads FI/party check positive-pay policy.
+type Store struct {
 	db *sql.DB
 }
 
-func NewCheckSettingsStore(db *sql.DB) *CheckSettingsStore {
-	return &CheckSettingsStore{db: db}
+func New(db *sql.DB) *Store {
+	return &Store{db: db}
 }
 
 // ResolvePolicy returns party override when present, else FI settings, else defaults.
-func (s *CheckSettingsStore) ResolvePolicy(ctx context.Context, fiID, partyID string) (checkpay.Policy, error) {
-	var pol checkpay.Policy
+func (s *Store) ResolvePolicy(ctx context.Context, fiID, partyID string) (Policy, error) {
+	var pol Policy
 	if partyID != "" {
 		err := s.db.QueryRowContext(ctx, `
 			SELECT return_on_mismatch, max_age_days
@@ -41,7 +39,7 @@ func (s *CheckSettingsStore) ResolvePolicy(ctx context.Context, fiID, partyID st
 		WHERE fi_id = $1::uuid
 	`, fiID).Scan(&pol.ReturnOnMismatch, &pol.MaxAgeDays)
 	if errors.Is(err, sql.ErrNoRows) {
-		return checkpay.Policy{MaxAgeDays: checkpay.DefaultMaxAgeDays}, nil
+		return Policy{MaxAgeDays: DefaultMaxAgeDays}, nil
 	}
 	if err != nil {
 		return pol, fmt.Errorf("fi check settings: %w", err)

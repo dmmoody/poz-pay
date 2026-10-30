@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/decide"
+	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
 func activeAcct() *checkpay.Account {
@@ -41,7 +41,7 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 	t.Run("nil account", func(t *testing.T) {
 		t.Parallel()
 		r := checkpay.EvaluateCheck(nil, nil, presented, pol, asOf)
-		assertGate(t, r, decide.CodeAccountNotOurs)
+		assertGate(t, r, decision.CodeAccountNotOurs)
 	})
 
 	t.Run("inactive", func(t *testing.T) {
@@ -49,13 +49,13 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 		acct := activeAcct()
 		acct.Active = false
 		r := checkpay.EvaluateCheck(acct, issued(nil), presented, pol, asOf)
-		assertGate(t, r, decide.CodeAccountInactive)
+		assertGate(t, r, decision.CodeAccountInactive)
 	})
 
 	t.Run("not in register", func(t *testing.T) {
 		t.Parallel()
 		r := checkpay.EvaluateCheck(activeAcct(), nil, presented, pol, asOf)
-		assertGate(t, r, decide.CodeCheckNotInRegister)
+		assertGate(t, r, decision.CodeCheckNotInRegister)
 	})
 
 	t.Run("voided", func(t *testing.T) {
@@ -64,7 +64,7 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
 			i.VoidedAt = &now
 		}), presented, pol, asOf)
-		assertGate(t, r, decide.CodeCheckVoided)
+		assertGate(t, r, decision.CodeCheckVoided)
 	})
 
 	t.Run("already paid", func(t *testing.T) {
@@ -73,7 +73,7 @@ func TestEvaluateCheck_GateFails(t *testing.T) {
 		r := checkpay.EvaluateCheck(activeAcct(), issued(func(i *checkpay.RegisterItem) {
 			i.PaidAt = &now
 		}), presented, pol, asOf)
-		assertGate(t, r, decide.CodeCheckAlreadyPaid)
+		assertGate(t, r, decision.CodeCheckAlreadyPaid)
 	})
 }
 
@@ -89,7 +89,7 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 181)
 		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{}, asOf)
-		assertGate(t, r, decide.CodeCheckExpired)
+		assertGate(t, r, decision.CodeCheckExpired)
 		if r.Exceptions[0].Facts["age_days"] != 181 || r.Exceptions[0].Facts["max_age_days"] != 180 {
 			t.Fatalf("facts=%+v", r.Exceptions[0].Facts)
 		}
@@ -106,7 +106,7 @@ func TestEvaluateCheck_Expired(t *testing.T) {
 		t.Parallel()
 		asOf := issue.AddDate(0, 0, 61)
 		r := checkpay.EvaluateCheck(activeAcct(), item, presented, checkpay.Policy{MaxAgeDays: 60}, asOf)
-		assertGate(t, r, decide.CodeCheckExpired)
+		assertGate(t, r, decision.CodeCheckExpired)
 	})
 
 	t.Run("no issue_date skips expiry", func(t *testing.T) {
@@ -125,7 +125,7 @@ func TestEvaluateCheck_MismatchAccumulate(t *testing.T) {
 		Amount:      10050,
 		Payee:       "ACME SUPPLIES",
 	}, checkpay.Policy{}, asOf)
-	if r.Decision != decide.DecisionReview {
+	if r.Decision != decision.DecisionReview {
 		t.Fatalf("decision=%s want review", r.Decision)
 	}
 	if len(r.Exceptions) != 2 {
@@ -135,7 +135,7 @@ func TestEvaluateCheck_MismatchAccumulate(t *testing.T) {
 	for _, e := range r.Exceptions {
 		codes[e.Code] = true
 	}
-	if !codes[decide.CodeAmountMismatch] || !codes[decide.CodePayeeMismatch] {
+	if !codes[decision.CodeAmountMismatch] || !codes[decision.CodePayeeMismatch] {
 		t.Fatalf("missing mismatch codes: %+v", r.Exceptions)
 	}
 	assertNoMatch(t, r)
@@ -149,10 +149,10 @@ func TestEvaluateCheck_ReturnOnMismatch(t *testing.T) {
 		Amount:      10050,
 		Payee:       "ACME SUPPLIES LLC",
 	}, checkpay.Policy{ReturnOnMismatch: true}, asOf)
-	if r.Decision != decide.DecisionReturn {
+	if r.Decision != decision.DecisionReturn {
 		t.Fatalf("decision=%s want return", r.Decision)
 	}
-	if len(r.Exceptions) != 1 || r.Exceptions[0].Code != decide.CodeAmountMismatch {
+	if len(r.Exceptions) != 1 || r.Exceptions[0].Code != decision.CodeAmountMismatch {
 		t.Fatalf("exceptions=%+v", r.Exceptions)
 	}
 	f := r.Exceptions[0].Facts
@@ -181,9 +181,9 @@ func TestNormalizePayee(t *testing.T) {
 	}
 }
 
-func assertGate(t *testing.T, r decide.Result, code string) {
+func assertGate(t *testing.T, r decision.Result, code string) {
 	t.Helper()
-	if r.Decision != decide.DecisionReturn {
+	if r.Decision != decision.DecisionReturn {
 		t.Fatalf("decision=%s want return", r.Decision)
 	}
 	if len(r.Exceptions) != 1 || r.Exceptions[0].Code != code {
@@ -192,23 +192,23 @@ func assertGate(t *testing.T, r decide.Result, code string) {
 	assertNoMatch(t, r)
 }
 
-func assertRegisterMatch(t *testing.T, r decide.Result, registerItemID string) {
+func assertRegisterMatch(t *testing.T, r decision.Result, registerItemID string) {
 	t.Helper()
-	if r.Decision != decide.DecisionPay {
+	if r.Decision != decision.DecisionPay {
 		t.Fatalf("decision=%s excs=%+v want pay", r.Decision, r.Exceptions)
 	}
 	if len(r.Exceptions) != 0 {
 		t.Fatalf("exceptions should be empty: %+v", r.Exceptions)
 	}
-	if r.Match == nil || r.Match.Code != decide.CodeRegisterMatch {
-		t.Fatalf("match=%+v want %s", r.Match, decide.CodeRegisterMatch)
+	if r.Match == nil || r.Match.Code != decision.CodeRegisterMatch {
+		t.Fatalf("match=%+v want %s", r.Match, decision.CodeRegisterMatch)
 	}
 	if r.Match.Facts["register_item_id"] != registerItemID {
 		t.Fatalf("facts=%+v", r.Match.Facts)
 	}
 }
 
-func assertNoMatch(t *testing.T, r decide.Result) {
+func assertNoMatch(t *testing.T, r decision.Result) {
 	t.Helper()
 	if r.Match != nil {
 		t.Fatalf("match=%+v want none", r.Match)

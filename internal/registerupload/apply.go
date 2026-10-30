@@ -9,7 +9,7 @@ import (
 	"io"
 
 	"github.com/dmmoody/poz-pay/internal/checkcsv"
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/checkregister"
 )
 
 // MaxStoredRejections is how many row failures are kept for one upload.
@@ -19,25 +19,11 @@ const MaxStoredRejections = 100
 
 const maxFailureRunes = 500
 
-// ConstraintError is a class-23 integrity failure from a register insert.
-// State is the SQLSTATE. The store reports it; this package decides the
-// customer-facing rejection.
-type ConstraintError struct {
-	State string
-}
-
-func (e *ConstraintError) Error() string {
-	if e == nil {
-		return "register write constraint"
-	}
-	return "register write constraint " + e.State
-}
-
 // BatchWriter is the persistence port for one ingest transaction.
 // Implementations run SQL. They do not choose rejection codes or messages.
 type BatchWriter interface {
 	RejectionCount(ctx context.Context) (int, error)
-	InsertItem(ctx context.Context, item checkpay.UploadItem, payeeNormalized string) error
+	InsertItem(ctx context.Context, item checkregister.UploadItem, payeeNormalized string) error
 	InsertRejection(ctx context.Context, rej Rejection) error
 	Advance(ctx context.Context, accepted, rejected, rowsProcessed int) error
 }

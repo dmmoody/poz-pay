@@ -1,4 +1,4 @@
-package api
+package checkpay
 
 import (
 	"encoding/json"

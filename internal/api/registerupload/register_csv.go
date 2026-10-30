@@ -1,4 +1,4 @@
-package api
+package registerupload
 
 import (
 	"errors"
@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/registerupload"
+	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
+	upload "github.com/dmmoody/poz-pay/internal/registerupload"
 )
 
-func (h *Handlers) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) {
+func (h Handler) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request) {
 	if h.Uploads == nil {
 		writeError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
 		return
@@ -23,7 +23,7 @@ func (h *Handlers) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request
 	}
 	max := h.MaxUploadBytes
 	if max <= 0 {
-		max = registerupload.DefaultMaxUploadBytes
+		max = upload.DefaultMaxUploadBytes
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, max)
 	if err := r.ParseMultipartForm(1 << 20); err != nil {
@@ -45,7 +45,7 @@ func (h *Handlers) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request
 	}
 	defer file.Close()
 
-	upload, err := h.Uploads.Accept(r.Context(), registerupload.AcceptInput{
+	accepted, err := h.Uploads.Accept(r.Context(), upload.AcceptInput{
 		FIID:     fiID,
 		PartyID:  partyID,
 		Filename: hdr.Filename,
@@ -58,10 +58,10 @@ func (h *Handlers) uploadCheckRegisterCSV(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload failed")
 		return
 	}
-	writeJSON(w, http.StatusAccepted, uploadAcceptedJSON(upload))
+	writeJSON(w, http.StatusAccepted, uploadAcceptedJSON(accepted))
 }
 
-func (h *Handlers) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request) {
+func (h Handler) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request) {
 	if h.Uploads == nil {
 		writeError(w, http.StatusServiceUnavailable, "NOT_CONFIGURED", "csv upload is not configured")
 		return
@@ -73,7 +73,7 @@ func (h *Handlers) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "fi_id, party_id, and upload_id must be UUIDs")
 		return
 	}
-	upload, err := h.Uploads.Get(r.Context(), fiID, partyID, uploadID)
+	found, err := h.Uploads.Get(r.Context(), fiID, partyID, uploadID)
 	if writeUploadErr(w, err) {
 		return
 	}
@@ -81,7 +81,7 @@ func (h *Handlers) GetCheckRegisterUpload(w http.ResponseWriter, r *http.Request
 		writeError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "upload lookup failed")
 		return
 	}
-	writeJSON(w, http.StatusOK, uploadStatusJSON(upload))
+	writeJSON(w, http.StatusOK, uploadStatusJSON(found))
 }
 
 func writeUploadErr(w http.ResponseWriter, err error) bool {
@@ -89,19 +89,19 @@ func writeUploadErr(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
 		return false
-	case errors.As(err, &maxErr), errors.Is(err, registerupload.ErrTooLarge):
+	case errors.As(err, &maxErr), errors.Is(err, upload.ErrTooLarge):
 		writeError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "file exceeds the upload limit")
-	case errors.Is(err, registerupload.ErrInvalidCSV):
+	case errors.Is(err, upload.ErrInvalidCSV):
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
-	case errors.Is(err, checkpay.ErrFINotFound):
+	case errors.Is(err, paysvc.ErrFINotFound):
 		writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
-	case errors.Is(err, checkpay.ErrPartyNotFound):
+	case errors.Is(err, paysvc.ErrPartyNotFound):
 		writeError(w, http.StatusNotFound, "PARTY_NOT_FOUND", err.Error())
-	case errors.Is(err, registerupload.ErrFIInactive):
+	case errors.Is(err, upload.ErrFIInactive):
 		writeError(w, http.StatusConflict, "FI_INACTIVE", err.Error())
-	case errors.Is(err, registerupload.ErrRoutingNumberRequired):
+	case errors.Is(err, upload.ErrRoutingNumberRequired):
 		writeError(w, http.StatusUnprocessableEntity, "ROUTING_NUMBER_REQUIRED", err.Error())
-	case errors.Is(err, registerupload.ErrUploadNotFound):
+	case errors.Is(err, upload.ErrUploadNotFound):
 		writeError(w, http.StatusNotFound, "UPLOAD_NOT_FOUND", err.Error())
 	default:
 		return false
@@ -138,7 +138,7 @@ type uploadRejection struct {
 	Message string `json:"message"`
 }
 
-func uploadAcceptedJSON(u registerupload.Upload) uploadAcceptedBody {
+func uploadAcceptedJSON(u upload.Upload) uploadAcceptedBody {
 	return uploadAcceptedBody{
 		UploadID:      u.ID,
 		FIID:          u.FIID,
@@ -152,7 +152,7 @@ func uploadAcceptedJSON(u registerupload.Upload) uploadAcceptedBody {
 	}
 }
 
-func uploadStatusJSON(u registerupload.Upload) uploadStatusBody {
+func uploadStatusJSON(u upload.Upload) uploadStatusBody {
 	rejections := make([]uploadRejection, 0, len(u.Rejections))
 	for _, rej := range u.Rejections {
 		rejections = append(rejections, uploadRejection{Row: rej.Row, Code: rej.Code, Message: rej.Message})

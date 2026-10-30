@@ -28,6 +28,9 @@ import (
 
 	"github.com/dmmoody/poz-pay/internal/checkcsv"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/checkregister"
+	"github.com/dmmoody/poz-pay/internal/registerintake"
+	"github.com/dmmoody/poz-pay/internal/tenant"
 )
 
 const (
@@ -63,7 +66,7 @@ var (
 	ErrTooLarge = errors.New("check register file exceeds the upload limit")
 
 	// ErrUploadNotFound means the upload is not under this institution and customer.
-	ErrUploadNotFound = errors.New("check register upload not found")
+	ErrUploadNotFound = registerintake.ErrNotFound
 
 	// ErrBusy means another worker holds the upload. The delivery should be retried.
 	ErrBusy = errors.New("check register upload is already being ingested")
@@ -79,17 +82,45 @@ var (
 )
 
 // Customer is one party under one financial institution.
-// RoutingNumber is that institution's ABA number.
-type Customer struct {
-	FIActive      bool
-	PartyActive   bool
-	RoutingNumber string
-}
+type Customer = tenant.Customer
+
+// ConstraintError is a class-23 integrity failure from a register insert.
+type ConstraintError = registerintake.ConstraintError
+
+// Intake is the row inserted once a file has been accepted.
+type Intake = registerintake.Intake
+
+// IntakeRow is one stored file locked for parsing.
+type IntakeRow = registerintake.IntakeRow
+
+// Rejection is one data row that did not become a register item.
+type Rejection = registerintake.Rejection
+
+// Upload is the intake record for one file.
+type Upload = registerintake.Upload
+
+// Records is CRUD for an accepted file.
+type Records = registerintake.Records
+
+// Tx is one database transaction.
+type Tx = registerintake.Tx
+
+// Conn is one database connection holding the ingest lock.
+type Conn = registerintake.Conn
 
 // Tenants loads the institution, customer, and account numbers an upload is filed under.
 type Tenants interface {
 	Customer(ctx context.Context, fiID, partyID string) (Customer, error)
 	Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error)
+}
+
+// CommittedRow is one parsed data row. Exactly one of Item or Rejection is set.
+// NormalizedPayee is the compare form of Item.Payee.
+type CommittedRow struct {
+	Row             int
+	Item            *checkregister.UploadItem
+	NormalizedPayee string
+	Rejection       *Rejection
 }
 
 // AcceptInput is one CSV upload from a customer of an institution.
@@ -98,102 +129,6 @@ type AcceptInput struct {
 	PartyID  string
 	Filename string
 	Body     io.Reader
-}
-
-// Intake is the row inserted once a file has been accepted.
-type Intake struct {
-	ID            string
-	FIID          string
-	PartyID       string
-	RoutingNumber string
-	Filename      string
-}
-
-// IntakeRow is one stored file locked for parsing.
-type IntakeRow struct {
-	FIID          string
-	PartyID       string
-	RoutingNumber string
-	Status        string
-	RowsProcessed int
-	BatchID       string
-}
-
-// Rejection is one data row that did not become a register item.
-// Row is 1-based among data records.
-type Rejection struct {
-	Row     int
-	Code    string
-	Message string
-}
-
-// Upload is the intake record for one file.
-type Upload struct {
-	ID            string
-	FIID          string
-	PartyID       string
-	RoutingNumber string
-	Filename      string
-	ByteSize      int64
-	SHA256        string
-	Status        string
-	BatchID       string
-	Accepted      int
-	Rejected      int
-	RowsProcessed int
-	Failure       string
-	ReceivedAt    time.Time
-	Rejections    []Rejection
-}
-
-// RejectionsTruncated reports that rejected rows were dropped after the stored cap.
-func (u Upload) RejectionsTruncated() bool {
-	return u.Rejected > len(u.Rejections)
-}
-
-// CommittedRow is one parsed data row. Exactly one of Item or Rejection is set.
-// NormalizedPayee is the compare form of Item.Payee.
-type CommittedRow struct {
-	Row             int
-	Item            *checkpay.UploadItem
-	NormalizedPayee string
-	Rejection       *Rejection
-}
-
-// Records is CRUD. WithinTx and WithinConn only begin, commit, and roll back.
-// The callbacks decide which rows to write.
-type Records interface {
-	WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error
-	WithinConn(ctx context.Context, fn func(context.Context, Conn) error) error
-	Find(ctx context.Context, fiID, partyID, id string) (Upload, error)
-}
-
-// Tx is one database transaction. Each method is a single statement.
-// InsertItem uses a savepoint so one constraint failure does not abort the batch.
-type Tx interface {
-	InsertIntake(ctx context.Context, row Intake) (time.Time, error)
-	InsertChunk(ctx context.Context, id string, seq int, data []byte) error
-	SetBytes(ctx context.Context, id string, size int64, sum []byte) error
-	InsertMessage(ctx context.Context, topic string, payload []byte) error
-	LockIntake(ctx context.Context, id string) (IntakeRow, error)
-	InsertBatch(ctx context.Context, fiID, partyID, source string) (string, error)
-	SetIngesting(ctx context.Context, id, batchID string) error
-	RejectionCount(ctx context.Context, id string) (int, error)
-	InsertItem(ctx context.Context, batchID, fiID, partyID string, item checkpay.UploadItem, payeeNormalized string) error
-	InsertRejection(ctx context.Context, id string, rej Rejection) error
-	Advance(ctx context.Context, id string, accepted, rejected, rowsProcessed int) error
-}
-
-// Conn is one database connection. The advisory lock is held on this connection
-// across the transactions started with WithinTx. Chunk reads must not overlap
-// an open transaction on the same connection.
-type Conn interface {
-	TryLock(ctx context.Context, key string) (bool, error)
-	Unlock(ctx context.Context, key string) error
-	WithinTx(ctx context.Context, fn func(context.Context, Tx) error) error
-	ReadChunk(ctx context.Context, id string, seq int) ([]byte, bool, error)
-	MarkCompleted(ctx context.Context, id string) error
-	MarkFailed(ctx context.Context, id, reason string) error
 }
 
 // Service accepts files, parses them, and persists the rows.
@@ -414,7 +349,7 @@ func classify(rec checkcsv.Record, routingNumber string, accounts map[string]str
 			},
 		}
 	}
-	item := checkpay.UploadItem{
+	item := checkregister.UploadItem{
 		AccountID:   accountID,
 		CheckNumber: rec.CheckNumber,
 		Amount:      rec.AmountMinor,

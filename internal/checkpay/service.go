@@ -2,12 +2,13 @@ package checkpay
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/decide"
+	"github.com/dmmoody/poz-pay/internal/checkregister"
+	"github.com/dmmoody/poz-pay/internal/decision"
+	"github.com/dmmoody/poz-pay/internal/tenant"
 )
 
 // AccountReader resolves accounts for decide/upload.
@@ -18,13 +19,9 @@ type AccountReader interface {
 	AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error)
 }
 
-// RegisterReader loads register items for decide.
-type RegisterReader interface {
+// Register loads register items and persists batches and postings.
+type Register interface {
 	FindItem(ctx context.Context, fiID, accountID, checkNumber string) (*RegisterItem, error)
-}
-
-// RegisterWriter persists upload batches and postings.
-type RegisterWriter interface {
 	InsertBatch(ctx context.Context, fiID, partyID string, items []UploadItem, payeeNorm func(string) string) (UploadBatchResult, error)
 	RecordPayment(ctx context.Context, rec PaymentRecord) (Payment, error)
 }
@@ -34,42 +31,11 @@ type PolicyResolver interface {
 	ResolvePolicy(ctx context.Context, fiID, partyID string) (Policy, error)
 }
 
-// AuditKindPresentment is a decide call on the check's audit stream.
-const AuditKindPresentment = "presentment"
-
-// AuditKindPosted is the paying system's settlement on that same stream.
-const AuditKindPosted = "posted"
-
 // DecisionLog appends presentments and lists the check's audit stream.
 type DecisionLog interface {
 	WriteCheckDecision(ctx context.Context, entry CheckAuditEntry) (string, error)
 	ListCheckDecisions(ctx context.Context, fiID, accountID, checkNumber string) ([]RecordedDecision, error)
 	ListCheckAudit(ctx context.Context, fiID, accountID, checkNumber string) ([]CheckAuditEvent, error)
-}
-
-// CheckAuditEntry is one presentment attempt written to decision history.
-type CheckAuditEntry struct {
-	FIID           string
-	PartyID        string
-	AccountID      string
-	CorrelationID  string
-	CheckNumber    string
-	RegisterItemID string
-	Request        any
-	Result         decide.Result
-}
-
-// RecordedDecision is one stored presentment, oldest first when listed.
-type RecordedDecision struct {
-	ID             string             `json:"id"`
-	Decision       string             `json:"decision"`
-	Match          *decide.Match      `json:"match"`
-	Exceptions     []decide.Exception `json:"exceptions"`
-	CorrelationID  string             `json:"correlation_id,omitempty"`
-	RegisterItemID string             `json:"register_item_id,omitempty"`
-	Request        json.RawMessage    `json:"request"`
-	DecidedAt      time.Time          `json:"decided_at"`
-	LatencyMs      int64              `json:"latency_ms"`
 }
 
 // CheckHistory is every decide for one check number, plus the posting if any.
@@ -79,17 +45,6 @@ type CheckHistory struct {
 	PaidAt            *time.Time         `json:"paid_at"`
 	PaidCorrelationID string             `json:"paid_correlation_id,omitempty"`
 	Decisions         []RecordedDecision `json:"decisions"`
-}
-
-// Payment is the posting recorded against a register item.
-type Payment struct {
-	RegisterItemID string    `json:"register_item_id"`
-	CheckNumber    string    `json:"check_number"`
-	PaidAt         time.Time `json:"paid_at"`
-	CorrelationID  string    `json:"correlation_id,omitempty"`
-	// AlreadyPaid reports that this call found an existing posting. It selects HTTP 200
-	// versus 201 and is not part of the posting body.
-	AlreadyPaid bool `json:"-"`
 }
 
 // PostInput records that the core posted a check.
@@ -102,17 +57,6 @@ type PostInput struct {
 	RawRequest    any
 }
 
-// PaymentRecord is the posting written with its audit event in one transaction.
-type PaymentRecord struct {
-	FIID          string
-	PartyID       string
-	AccountID     string
-	CheckNumber   string
-	CorrelationID string
-	PaidAt        time.Time
-	Request       any
-}
-
 // CheckAudit is every presentment and the posting for one check, oldest first.
 type CheckAudit struct {
 	CheckNumber    string            `json:"check_number"`
@@ -120,75 +64,23 @@ type CheckAudit struct {
 	Events         []CheckAuditEvent `json:"events"`
 }
 
-// CheckAuditEvent is one row on the check's audit stream.
-type CheckAuditEvent struct {
-	ID             string            `json:"id"`
-	Kind           string            `json:"kind"`
-	RecordedAt     time.Time         `json:"recorded_at"`
-	CorrelationID  string            `json:"correlation_id,omitempty"`
-	RegisterItemID string            `json:"register_item_id,omitempty"`
-	Request        json.RawMessage   `json:"request"`
-	Presentment    *PresentmentAudit `json:"presentment,omitempty"`
-	Posted         *PostedAudit      `json:"posted,omitempty"`
-}
-
-// PresentmentAudit is the decide outcome stored on a presentment event.
-type PresentmentAudit struct {
-	Decision   string             `json:"decision"`
-	Match      *decide.Match      `json:"match"`
-	Exceptions []decide.Exception `json:"exceptions"`
-	LatencyMs  int64              `json:"latency_ms"`
-}
-
-// PostedAudit is the settlement stored on a posted event.
-type PostedAudit struct {
-	PaidAt time.Time `json:"paid_at"`
-}
-
-// UploadItem is a register line accepted by the service.
-type UploadItem struct {
-	AccountID   string
-	CheckNumber string
-	Amount      int64
-	Payee       string
-	IssueDate   *time.Time
-	Void        bool
-}
-
-// UploadBatchResult is returned to HTTP after upload.
-type UploadBatchResult struct {
-	BatchID  string
-	Accepted int
-	Rejected int
-	Errors   []UploadItemError
-}
-
-// UploadItemError is a per-row reject.
-type UploadItemError struct {
-	Index   int    `json:"index"`
-	Message string `json:"message"`
-}
-
 // Service orchestrates check positive pay decide and register upload.
 type Service struct {
 	accounts  AccountReader
-	register  RegisterReader
-	writer    RegisterWriter
+	register  Register
 	policy    PolicyResolver
 	decisions DecisionLog
 }
 
 func NewService(
 	accounts AccountReader,
-	register RegisterReader,
-	writer RegisterWriter,
+	register Register,
 	policy PolicyResolver,
 	decisions DecisionLog,
 ) *Service {
 	return &Service{
 		accounts:  accounts,
 		register:  register,
-		writer:    writer,
 		policy:    policy,
 		decisions: decisions,
 	}
@@ -204,19 +96,19 @@ type DecideInput struct {
 }
 
 // ErrFINotFound is returned when fi_id is unknown (HTTP 404).
-var ErrFINotFound = fmt.Errorf("financial institution not found")
+var ErrFINotFound = tenant.ErrInstitutionNotFound
 
 // ErrPartyNotFound is returned when party is unknown under FI.
-var ErrPartyNotFound = fmt.Errorf("party not found")
+var ErrPartyNotFound = tenant.ErrPartyNotFound
 
 // ErrAccountNotFound is returned when the account is unknown under the FI.
 var ErrAccountNotFound = fmt.Errorf("account not found")
 
 // ErrCheckNotInRegister is returned when a posting names no register row.
-var ErrCheckNotInRegister = fmt.Errorf("check not in register")
+var ErrCheckNotInRegister = checkregister.ErrNotInRegister
 
 // ErrCheckVoided is returned when a posting targets a voided register row.
-var ErrCheckVoided = fmt.Errorf("check voided")
+var ErrCheckVoided = checkregister.ErrVoided
 
 // ErrCheckNumberRequired is returned when a check number is blank.
 var ErrCheckNumberRequired = fmt.Errorf("check number is required")
@@ -225,27 +117,27 @@ var ErrCheckNumberRequired = fmt.Errorf("check number is required")
 var ErrPaidAtRequired = fmt.Errorf("paid_at is required")
 
 // Decide evaluates a presented check and appends one history row. It does not post the item.
-func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, error) {
+func (s *Service) Decide(ctx context.Context, in DecideInput) (decision.Result, error) {
 	start := time.Now()
 
 	ok, err := s.accounts.FIExists(ctx, in.FIID)
 	if err != nil {
-		return decide.Result{}, err
+		return decision.Result{}, err
 	}
 	if !ok {
-		return decide.Result{}, ErrFINotFound
+		return decision.Result{}, ErrFINotFound
 	}
 
 	acct, err := s.accounts.GetAccount(ctx, in.FIID, in.AccountID)
 	if err != nil {
-		return decide.Result{}, err
+		return decision.Result{}, err
 	}
 
 	var item *RegisterItem
 	if acct != nil {
 		item, err = s.register.FindItem(ctx, in.FIID, in.AccountID, in.Check.CheckNumber)
 		if err != nil {
-			return decide.Result{}, err
+			return decision.Result{}, err
 		}
 	}
 
@@ -253,7 +145,7 @@ func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, er
 	if acct != nil && s.policy != nil {
 		pol, err = s.policy.ResolvePolicy(ctx, in.FIID, acct.PartyID)
 		if err != nil {
-			return decide.Result{}, err
+			return decision.Result{}, err
 		}
 	}
 
@@ -283,7 +175,7 @@ func (s *Service) Decide(ctx context.Context, in DecideInput) (decide.Result, er
 		Request:        in.RawRequest,
 		Result:         result,
 	}); err != nil {
-		return decide.Result{}, fmt.Errorf("audit decide: %w", err)
+		return decision.Result{}, fmt.Errorf("audit decide: %w", err)
 	}
 	return result, nil
 }
@@ -304,7 +196,7 @@ func (s *Service) Post(ctx context.Context, in PostInput) (Payment, error) {
 		return Payment{}, err
 	}
 
-	payment, err := s.writer.RecordPayment(ctx, PaymentRecord{
+	payment, err := s.register.RecordPayment(ctx, PaymentRecord{
 		FIID:          in.FIID,
 		PartyID:       acct.PartyID,
 		AccountID:     acct.ID,
@@ -450,7 +342,7 @@ func (s *Service) Upload(ctx context.Context, fiID, partyID string, items []Uplo
 		origIndex = append(origIndex, i)
 	}
 
-	dbResult, err := s.writer.InsertBatch(ctx, fiID, partyID, prepared, NormalizePayee)
+	dbResult, err := s.register.InsertBatch(ctx, fiID, partyID, prepared, NormalizePayee)
 	if err != nil {
 		return UploadBatchResult{}, err
 	}

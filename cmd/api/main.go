@@ -12,11 +12,19 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/api"
+	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
+	"github.com/dmmoody/poz-pay/internal/api/health"
+	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
+	"github.com/dmmoody/poz-pay/internal/audit"
 	"github.com/dmmoody/poz-pay/internal/broker/rabbitmq"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/checkregister"
+	"github.com/dmmoody/poz-pay/internal/checksettings"
 	"github.com/dmmoody/poz-pay/internal/outbox"
+	"github.com/dmmoody/poz-pay/internal/postgres"
+	"github.com/dmmoody/poz-pay/internal/registerintake"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
-	"github.com/dmmoody/poz-pay/internal/store/postgres"
+	"github.com/dmmoody/poz-pay/internal/tenant"
 )
 
 func main() {
@@ -50,13 +58,13 @@ func main() {
 	}
 	defer broker.Close()
 
-	tenants := postgres.NewTenantStore(db)
-	registers := postgres.NewCheckRegisterStore(db)
-	checkSettings := postgres.NewCheckSettingsStore(db)
-	audits := postgres.NewAuditStore(db)
-	checks := checkpay.NewService(tenants, registers, registers, checkSettings, audits)
-	uploads := registerupload.NewService(tenants, postgres.NewRegisterRecords(db), maxUpload)
-	relay := outbox.NewRelay(postgres.NewOutboxStore(db), broker, time.Second)
+	tenants := tenant.New(db)
+	registers := checkregister.New(db)
+	checkSettings := checksettings.New(db)
+	audits := audit.New(db)
+	checks := checkpay.NewService(tenants, registers, checkSettings, audits)
+	uploads := registerupload.NewService(tenants, registerintake.New(db), maxUpload)
+	relay := outbox.NewRelay(outbox.NewQueue(db), broker, time.Second)
 
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	defer stopWorkers()
@@ -67,11 +75,14 @@ func main() {
 	}()
 	go relay.Run(workerCtx)
 
-	srv := api.NewServer(addr, &api.Handlers{
-		Checks:         checks,
-		Uploads:        uploads,
-		DB:             db,
-		MaxUploadBytes: maxUpload,
+	srv := api.NewServer(addr, api.Routes{
+		Health: health.Handler{DB: db},
+		Checks: payhttp.Handler{Checks: checks},
+		Registers: reghttp.Handler{
+			Checks:         checks,
+			Uploads:        uploads,
+			MaxUploadBytes: maxUpload,
+		},
 	})
 
 	go func() {

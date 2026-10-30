@@ -1,4 +1,4 @@
-package api
+package checkpay
 
 import (
 	"encoding/json"
@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/decide"
+	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
+	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
 type decideRequest struct {
@@ -27,7 +27,7 @@ type checkPayload struct {
 	IssueDate   string `json:"issue_date"`
 }
 
-func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
+func (h Handler) Decide(w http.ResponseWriter, r *http.Request) {
 	var req decideRequest
 	dec := json.NewDecoder(r.Body)
 	dec.DisallowUnknownFields()
@@ -50,10 +50,10 @@ func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
 	}
 
 	switch req.Rail {
-	case decide.RailACH:
+	case decision.RailACH:
 		writeError(w, http.StatusNotImplemented, "NOT_IMPLEMENTED", "ACH decide not implemented yet")
 		return
-	case decide.RailCheck:
+	case decision.RailCheck:
 	default:
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", "rail must be check or ach")
 		return
@@ -72,7 +72,7 @@ func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	presented := checkpay.PresentedCheck{
+	presented := paysvc.PresentedCheck{
 		CheckNumber: strings.TrimSpace(req.Check.CheckNumber),
 		Amount:      req.Check.Amount,
 		Payee:       req.Check.Payee,
@@ -86,7 +86,7 @@ func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
 		presented.IssueDate = &t
 	}
 
-	result, err := h.Checks.Decide(r.Context(), checkpay.DecideInput{
+	result, err := h.Checks.Decide(r.Context(), paysvc.DecideInput{
 		FIID:          req.FIID,
 		AccountID:     req.AccountID,
 		CorrelationID: strings.TrimSpace(req.CorrelationID),
@@ -94,7 +94,7 @@ func (h *Handlers) Decide(w http.ResponseWriter, r *http.Request) {
 		RawRequest:    req,
 	})
 	if err != nil {
-		if errors.Is(err, checkpay.ErrFINotFound) {
+		if errors.Is(err, paysvc.ErrFINotFound) {
 			writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
 			return
 		}

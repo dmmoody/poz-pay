@@ -1,4 +1,4 @@
-package api
+package checkpay
 
 func looksLikeUUID(s string) bool {
 	if len(s) != 36 {

@@ -1,25 +1,22 @@
-package postgres
+package tenant
 
 import (
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-
-	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/registerupload"
 )
 
-// TenantStore reads FI / account rows for decide and upload.
-type TenantStore struct {
+// Store reads FI / account rows for decide and upload.
+type Store struct {
 	db *sql.DB
 }
 
-func NewTenantStore(db *sql.DB) *TenantStore {
-	return &TenantStore{db: db}
+func New(db *sql.DB) *Store {
+	return &Store{db: db}
 }
 
-func (s *TenantStore) FIExists(ctx context.Context, fiID string) (bool, error) {
+func (s *Store) FIExists(ctx context.Context, fiID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (SELECT 1 FROM financial_institutions WHERE id = $1::uuid)
@@ -30,7 +27,7 @@ func (s *TenantStore) FIExists(ctx context.Context, fiID string) (bool, error) {
 	return exists, nil
 }
 
-func (s *TenantStore) PartyBelongsToFI(ctx context.Context, fiID, partyID string) (bool, error) {
+func (s *Store) PartyBelongsToFI(ctx context.Context, fiID, partyID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -44,8 +41,8 @@ func (s *TenantStore) PartyBelongsToFI(ctx context.Context, fiID, partyID string
 }
 
 // GetAccount returns the account for (fi_id, account_id) or nil if not found under that FI.
-func (s *TenantStore) GetAccount(ctx context.Context, fiID, accountID string) (*checkpay.Account, error) {
-	var a checkpay.Account
+func (s *Store) GetAccount(ctx context.Context, fiID, accountID string) (*Account, error) {
+	var a Account
 	err := s.db.QueryRowContext(ctx, `
 		SELECT id::text, fi_id::text, party_id::text, active, positive_pay_enabled
 		FROM accounts
@@ -61,7 +58,7 @@ func (s *TenantStore) GetAccount(ctx context.Context, fiID, accountID string) (*
 }
 
 // Customer returns the institution and party an upload is filed under.
-func (s *TenantStore) Customer(ctx context.Context, fiID, partyID string) (registerupload.Customer, error) {
+func (s *Store) Customer(ctx context.Context, fiID, partyID string) (Customer, error) {
 	var (
 		fiActive bool
 		routing  sql.NullString
@@ -72,10 +69,10 @@ func (s *TenantStore) Customer(ctx context.Context, fiID, partyID string) (regis
 		WHERE id = $1::uuid
 	`, fiID).Scan(&fiActive, &routing)
 	if errors.Is(err, sql.ErrNoRows) {
-		return registerupload.Customer{}, checkpay.ErrFINotFound
+		return Customer{}, ErrInstitutionNotFound
 	}
 	if err != nil {
-		return registerupload.Customer{}, fmt.Errorf("load financial institution: %w", err)
+		return Customer{}, fmt.Errorf("load financial institution: %w", err)
 	}
 
 	var partyActive bool
@@ -83,12 +80,12 @@ func (s *TenantStore) Customer(ctx context.Context, fiID, partyID string) (regis
 		SELECT active FROM parties WHERE id = $1::uuid AND fi_id = $2::uuid
 	`, partyID, fiID).Scan(&partyActive)
 	if errors.Is(err, sql.ErrNoRows) {
-		return registerupload.Customer{}, checkpay.ErrPartyNotFound
+		return Customer{}, ErrPartyNotFound
 	}
 	if err != nil {
-		return registerupload.Customer{}, fmt.Errorf("load party: %w", err)
+		return Customer{}, fmt.Errorf("load party: %w", err)
 	}
-	out := registerupload.Customer{FIActive: fiActive, PartyActive: partyActive}
+	out := Customer{FIActive: fiActive, PartyActive: partyActive}
 	if routing.Valid {
 		out.RoutingNumber = routing.String
 	}
@@ -96,7 +93,7 @@ func (s *TenantStore) Customer(ctx context.Context, fiID, partyID string) (regis
 }
 
 // Accounts maps external account numbers to account ids for one customer.
-func (s *TenantStore) Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error) {
+func (s *Store) Accounts(ctx context.Context, fiID, partyID string) (map[string]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT external_account_number, id::text
 		FROM accounts
@@ -122,7 +119,7 @@ func (s *TenantStore) Accounts(ctx context.Context, fiID, partyID string) (map[s
 }
 
 // AccountOnParty checks account belongs to party under FI.
-func (s *TenantStore) AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error) {
+func (s *Store) AccountOnParty(ctx context.Context, fiID, partyID, accountID string) (bool, error) {
 	var exists bool
 	err := s.db.QueryRowContext(ctx, `
 		SELECT EXISTS (
@@ -135,5 +132,3 @@ func (s *TenantStore) AccountOnParty(ctx context.Context, fiID, partyID, account
 	}
 	return exists, nil
 }
-
-var _ registerupload.Tenants = (*TenantStore)(nil)

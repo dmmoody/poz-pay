@@ -11,8 +11,9 @@ import (
 	"time"
 
 	"github.com/dmmoody/poz-pay/internal/api"
+	payhttp "github.com/dmmoody/poz-pay/internal/api/checkpay"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
-	"github.com/dmmoody/poz-pay/internal/decide"
+	"github.com/dmmoody/poz-pay/internal/decision"
 )
 
 const (
@@ -56,7 +57,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("second decide: %v", err)
 	}
-	if first.Decision != decide.DecisionPay || second.Decision != decide.DecisionPay {
+	if first.Decision != decision.DecisionPay || second.Decision != decision.DecisionPay {
 		t.Fatalf("decisions = %s, %s; both presentments before post must pay", first.Decision, second.Decision)
 	}
 	if reg.posts != 0 {
@@ -98,7 +99,7 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("third decide: %v", err)
 	}
-	if third.Decision != decide.DecisionReturn || len(third.Exceptions) != 1 || third.Exceptions[0].Code != decide.CodeCheckAlreadyPaid {
+	if third.Decision != decision.DecisionReturn || len(third.Exceptions) != 1 || third.Exceptions[0].Code != decision.CodeCheckAlreadyPaid {
 		t.Fatalf("after post = %+v", third)
 	}
 
@@ -112,9 +113,9 @@ func TestDecide_staysPayUntilPostedAndKeepsHistory(t *testing.T) {
 	if len(history.Decisions) != 3 {
 		t.Fatalf("history len = %d", len(history.Decisions))
 	}
-	if history.Decisions[0].Decision != decide.DecisionPay ||
-		history.Decisions[1].Decision != decide.DecisionPay ||
-		history.Decisions[2].Decision != decide.DecisionReturn {
+	if history.Decisions[0].Decision != decision.DecisionPay ||
+		history.Decisions[1].Decision != decision.DecisionPay ||
+		history.Decisions[2].Decision != decision.DecisionReturn {
 		t.Fatalf("history decisions = %+v", history.Decisions)
 	}
 	if len(log.entries) != 3 {
@@ -204,7 +205,9 @@ func TestHTTP_presentmentsStayInHistoryUntilPost(t *testing.T) {
 		Payee:           "STAPLES INC",
 		PayeeNormalized: "STAPLES INC",
 	}}
-	srv := httptest.NewServer(api.NewRouter(&api.Handlers{Checks: newTestService(reg, &memDecisions{})}))
+	srv := httptest.NewServer(api.NewRouter(api.Routes{
+		Checks: payhttp.Handler{Checks: newTestService(reg, &memDecisions{})},
+	}))
 	t.Cleanup(srv.Close)
 
 	decideBody := []byte(`{
@@ -425,7 +428,6 @@ func newTestService(reg *memRegister, log *memDecisions) *checkpay.Service {
 			Active:             true,
 			PositivePayEnabled: true,
 		}},
-		reg,
 		reg,
 		memPolicy{},
 		log,

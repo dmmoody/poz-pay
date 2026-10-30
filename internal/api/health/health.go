@@ -1,4 +1,4 @@
-package api
+package health
 
 import (
 	"context"
@@ -11,7 +11,12 @@ type DBPinger interface {
 	PingContext(ctx context.Context) error
 }
 
-func (h *Handlers) Healthz(w http.ResponseWriter, r *http.Request) {
+// Handler serves the process health check.
+type Handler struct {
+	DB DBPinger
+}
+
+func (h Handler) Healthz(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	if h.DB == nil {
 		w.WriteHeader(http.StatusServiceUnavailable)

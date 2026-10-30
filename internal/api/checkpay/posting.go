@@ -1,4 +1,4 @@
-package api
+package checkpay
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
 )
 
 type postRequest struct {
@@ -16,7 +16,7 @@ type postRequest struct {
 	CorrelationID string `json:"correlation_id"`
 }
 
-func (h *Handlers) PostCheck(w http.ResponseWriter, r *http.Request) {
+func (h Handler) PostCheck(w http.ResponseWriter, r *http.Request) {
 	fiID := r.PathValue("fi_id")
 	accountID := r.PathValue("account_id")
 	if !looksLikeUUID(fiID) || !looksLikeUUID(accountID) {
@@ -41,7 +41,7 @@ func (h *Handlers) PostCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	payment, err := h.Checks.Post(r.Context(), checkpay.PostInput{
+	payment, err := h.Checks.Post(r.Context(), paysvc.PostInput{
 		FIID:          fiID,
 		AccountID:     accountID,
 		CheckNumber:   req.CheckNumber,
@@ -63,7 +63,7 @@ func (h *Handlers) PostCheck(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, status, payment)
 }
 
-func (h *Handlers) ListCheckDecisions(w http.ResponseWriter, r *http.Request) {
+func (h Handler) ListCheckDecisions(w http.ResponseWriter, r *http.Request) {
 	fiID := r.PathValue("fi_id")
 	accountID := r.PathValue("account_id")
 	checkNumber := strings.TrimSpace(r.PathValue("check_number"))
@@ -87,7 +87,7 @@ func (h *Handlers) ListCheckDecisions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, history)
 }
 
-func (h *Handlers) ListCheckAudit(w http.ResponseWriter, r *http.Request) {
+func (h Handler) ListCheckAudit(w http.ResponseWriter, r *http.Request) {
 	fiID := r.PathValue("fi_id")
 	accountID := r.PathValue("account_id")
 	checkNumber := strings.TrimSpace(r.PathValue("check_number"))
@@ -115,15 +115,15 @@ func writeCheckErr(w http.ResponseWriter, err error) bool {
 	switch {
 	case err == nil:
 		return false
-	case errors.Is(err, checkpay.ErrFINotFound):
+	case errors.Is(err, paysvc.ErrFINotFound):
 		writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
-	case errors.Is(err, checkpay.ErrAccountNotFound):
+	case errors.Is(err, paysvc.ErrAccountNotFound):
 		writeError(w, http.StatusNotFound, "ACCOUNT_NOT_FOUND", err.Error())
-	case errors.Is(err, checkpay.ErrCheckNotInRegister):
+	case errors.Is(err, paysvc.ErrCheckNotInRegister):
 		writeError(w, http.StatusNotFound, "CHECK_NOT_IN_REGISTER", err.Error())
-	case errors.Is(err, checkpay.ErrCheckVoided):
+	case errors.Is(err, paysvc.ErrCheckVoided):
 		writeError(w, http.StatusConflict, "CHECK_VOIDED", err.Error())
-	case errors.Is(err, checkpay.ErrCheckNumberRequired), errors.Is(err, checkpay.ErrPaidAtRequired):
+	case errors.Is(err, paysvc.ErrCheckNumberRequired), errors.Is(err, paysvc.ErrPaidAtRequired):
 		writeError(w, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 	default:
 		return false

@@ -1,4 +1,4 @@
-package decide
+package decision
 
 // Closed vocabulary tokens. Must stay aligned with DB lookup tables.
 

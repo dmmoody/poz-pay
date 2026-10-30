@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	reghttp "github.com/dmmoody/poz-pay/internal/api/registerupload"
 	"github.com/dmmoody/poz-pay/internal/checkpay"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
 )
@@ -24,9 +25,11 @@ const (
 func TestUploadCSV_acceptsCanonicalFile(t *testing.T) {
 	t.Parallel()
 	repo := &memStore{}
-	srv := httptest.NewServer(NewRouter(&Handlers{
-		Uploads:        registerupload.NewService(&memTenants{}, repo, 1<<20),
-		MaxUploadBytes: 1 << 20,
+	srv := httptest.NewServer(NewRouter(Routes{
+		Registers: reghttp.Handler{
+			Uploads:        registerupload.NewService(&memTenants{}, repo, 1<<20),
+			MaxUploadBytes: 1 << 20,
+		},
 	}))
 	t.Cleanup(srv.Close)
 
@@ -45,8 +48,10 @@ func TestUploadCSV_acceptsCanonicalFile(t *testing.T) {
 func TestUploadCSV_rejectsBadHeader(t *testing.T) {
 	t.Parallel()
 	repo := &memStore{}
-	srv := httptest.NewServer(NewRouter(&Handlers{
-		Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
+	srv := httptest.NewServer(NewRouter(Routes{
+		Registers: reghttp.Handler{
+			Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
+		},
 	}))
 	t.Cleanup(srv.Close)
 
@@ -62,8 +67,10 @@ func TestUploadCSV_rejectsBadHeader(t *testing.T) {
 
 func TestUploadCSV_unknownInstitution(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(NewRouter(&Handlers{
-		Uploads: registerupload.NewService(&memTenants{err: checkpay.ErrFINotFound}, &memStore{}, 1<<20),
+	srv := httptest.NewServer(NewRouter(Routes{
+		Registers: reghttp.Handler{
+			Uploads: registerupload.NewService(&memTenants{err: checkpay.ErrFINotFound}, &memStore{}, 1<<20),
+		},
 	}))
 	t.Cleanup(srv.Close)
 	res := postCSV(t, srv.URL, "acme.csv", canonicalCSV)
@@ -81,8 +88,10 @@ func TestGetCheckRegisterUpload(t *testing.T) {
 		ReceivedAt: time.Date(2026, 10, 29, 15, 0, 0, 0, time.UTC),
 		Rejections: []registerupload.Rejection{{Row: 2, Code: "unknown_account", Message: "missing"}},
 	}}
-	srv := httptest.NewServer(NewRouter(&Handlers{
-		Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
+	srv := httptest.NewServer(NewRouter(Routes{
+		Registers: reghttp.Handler{
+			Uploads: registerupload.NewService(&memTenants{}, repo, 1<<20),
+		},
 	}))
 	t.Cleanup(srv.Close)
 	res, err := http.Get(srv.URL + "/v1/fis/" + csvFIID + "/parties/" + csvPartyID + "/check-register-uploads/33333333-3333-3333-3333-333333333333")
@@ -97,7 +106,7 @@ func TestGetCheckRegisterUpload(t *testing.T) {
 
 func TestJSONRegisterUpload_stillRejectedWithoutItems(t *testing.T) {
 	t.Parallel()
-	srv := httptest.NewServer(NewRouter(&Handlers{}))
+	srv := httptest.NewServer(NewRouter(Routes{}))
 	t.Cleanup(srv.Close)
 	res, err := http.Post(srv.URL+"/v1/fis/"+csvFIID+"/parties/"+csvPartyID+"/check-registers", "application/json", strings.NewReader(`{"format":"json","items":[]}`))
 	if err != nil {

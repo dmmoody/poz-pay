@@ -3,33 +3,8 @@ package checkpay
 import (
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/decide"
+	"github.com/dmmoody/poz-pay/internal/decision"
 )
-
-// DefaultMaxAgeDays is the UCC-aligned stale window (~6 months) when policy omits max age.
-const DefaultMaxAgeDays = 180
-
-// Account is the resolved account for decide (tenant slice).
-type Account struct {
-	ID                 string
-	FIID               string
-	PartyID            string
-	Active             bool
-	PositivePayEnabled bool
-}
-
-// RegisterItem is an issued check row used for matching.
-type RegisterItem struct {
-	ID                string
-	CheckNumber       string
-	Amount            int64
-	Payee             string
-	PayeeNormalized   string
-	IssueDate         *time.Time // date-only; wall date in UTC noon or date truncated
-	VoidedAt          *time.Time
-	PaidAt            *time.Time
-	PaidCorrelationID string
-}
 
 // PresentedCheck is the inbound presented item.
 type PresentedCheck struct {
@@ -39,16 +14,7 @@ type PresentedCheck struct {
 	IssueDate   *time.Time // optional
 }
 
-// Policy controls check decide outcomes (FI/party check settings).
-type Policy struct {
-	// ReturnOnMismatch maps field mismatches to decision return (wash theater / strict).
-	ReturnOnMismatch bool
-	// MaxAgeDays is days after register issue_date before CHECK_EXPIRED.
-	// <=0 means DefaultMaxAgeDays (180).
-	MaxAgeDays int
-}
-
-func (p Policy) effectiveMaxAgeDays() int {
+func maxAgeDays(p Policy) int {
 	if p.MaxAgeDays <= 0 {
 		return DefaultMaxAgeDays
 	}
@@ -63,39 +29,39 @@ func (p Policy) effectiveMaxAgeDays() int {
 // Voided/paid items should be passed in when found including voided rows so
 // CHECK_VOIDED / CHECK_ALREADY_PAID can fire; callers that only query
 // active rows pass nil for missing → CHECK_NOT_IN_REGISTER.
-func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, policy Policy, asOf time.Time) decide.Result {
+func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, policy Policy, asOf time.Time) decision.Result {
 	if asOf.IsZero() {
 		asOf = time.Now().UTC()
 	}
 
 	if acct == nil || acct.FIID == "" || acct.ID == "" {
-		return decide.Hard(decide.CodeAccountNotOurs, nil)
+		return decision.Hard(decision.CodeAccountNotOurs, nil)
 	}
 	if !acct.Active || !acct.PositivePayEnabled {
-		return decide.Hard(decide.CodeAccountInactive, nil)
+		return decision.Hard(decision.CodeAccountInactive, nil)
 	}
 
 	if item == nil {
-		return decide.Hard(decide.CodeCheckNotInRegister, decide.Facts{
+		return decision.Hard(decision.CodeCheckNotInRegister, decision.Facts{
 			"check_number": presented.CheckNumber,
 		})
 	}
 	if item.VoidedAt != nil {
-		return decide.Hard(decide.CodeCheckVoided, decide.Facts{
+		return decision.Hard(decision.CodeCheckVoided, decision.Facts{
 			"check_number": presented.CheckNumber,
 		})
 	}
 	if item.PaidAt != nil {
-		return decide.Hard(decide.CodeCheckAlreadyPaid, decide.Facts{
+		return decision.Hard(decision.CodeCheckAlreadyPaid, decision.Facts{
 			"check_number": presented.CheckNumber,
 		})
 	}
 
 	if item.IssueDate != nil {
-		maxAge := policy.effectiveMaxAgeDays()
+		maxAge := maxAgeDays(policy)
 		age := calendarDaysBetween(*item.IssueDate, asOf)
 		if age > maxAge {
-			return decide.Hard(decide.CodeCheckExpired, decide.Facts{
+			return decision.Hard(decision.CodeCheckExpired, decision.Facts{
 				"check_number": presented.CheckNumber,
 				"issue_date":   truncateDateUTC(*item.IssueDate).Format("2006-01-02"),
 				"age_days":     age,
@@ -104,11 +70,11 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 		}
 	}
 
-	var excs []decide.Exception
+	var excs []decision.Exception
 	if presented.Amount != item.Amount {
-		excs = append(excs, decide.Exception{
-			Code: decide.CodeAmountMismatch,
-			Facts: decide.Facts{
+		excs = append(excs, decision.Exception{
+			Code: decision.CodeAmountMismatch,
+			Facts: decision.Facts{
 				"presented_amount": presented.Amount,
 				"issued_amount":    item.Amount,
 			},
@@ -121,9 +87,9 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 		issuedPayee = NormalizePayee(item.Payee)
 	}
 	if presentedPayee != issuedPayee {
-		excs = append(excs, decide.Exception{
-			Code: decide.CodePayeeMismatch,
-			Facts: decide.Facts{
+		excs = append(excs, decision.Exception{
+			Code: decision.CodePayeeMismatch,
+			Facts: decision.Facts{
 				"presented_payee": presentedPayee,
 				"issued_payee":    issuedPayee,
 			},
@@ -134,9 +100,9 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 		p := truncateDateUTC(*presented.IssueDate)
 		i := truncateDateUTC(*item.IssueDate)
 		if !p.Equal(i) {
-			excs = append(excs, decide.Exception{
-				Code: decide.CodeIssueDateMismatch,
-				Facts: decide.Facts{
+			excs = append(excs, decision.Exception{
+				Code: decision.CodeIssueDateMismatch,
+				Facts: decision.Facts{
 					"presented_issue_date": p.Format("2006-01-02"),
 					"issued_issue_date":    i.Format("2006-01-02"),
 				},
@@ -145,21 +111,21 @@ func EvaluateCheck(acct *Account, item *RegisterItem, presented PresentedCheck, 
 	}
 
 	if len(excs) == 0 {
-		result := decide.NewResult(decide.DecisionPay, nil)
-		result.Match = &decide.Match{
-			Code: decide.CodeRegisterMatch,
-			Facts: decide.Facts{
+		result := decision.NewResult(decision.DecisionPay, nil)
+		result.Match = &decision.Match{
+			Code: decision.CodeRegisterMatch,
+			Facts: decision.Facts{
 				"register_item_id": item.ID,
 			},
 		}
 		return result
 	}
 
-	decision := decide.DecisionReview
+	outcome := decision.DecisionReview
 	if policy.ReturnOnMismatch {
-		decision = decide.DecisionReturn
+		outcome = decision.DecisionReturn
 	}
-	return decide.NewResult(decision, excs)
+	return decision.NewResult(outcome, excs)
 }
 
 func truncateDateUTC(t time.Time) time.Time {

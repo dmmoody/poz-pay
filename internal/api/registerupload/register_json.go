@@ -1,4 +1,4 @@
-package api
+package registerupload
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dmmoody/poz-pay/internal/checkpay"
+	paysvc "github.com/dmmoody/poz-pay/internal/checkpay"
 )
 
 type uploadRequest struct {
@@ -26,13 +26,13 @@ type uploadItemIn struct {
 }
 
 type uploadResponse struct {
-	BatchID  string                     `json:"batch_id"`
-	Accepted int                        `json:"accepted"`
-	Rejected int                        `json:"rejected"`
-	Errors   []checkpay.UploadItemError `json:"errors"`
+	BatchID  string                   `json:"batch_id"`
+	Accepted int                      `json:"accepted"`
+	Rejected int                      `json:"rejected"`
+	Errors   []paysvc.UploadItemError `json:"errors"`
 }
 
-func (h *Handlers) UploadCheckRegister(w http.ResponseWriter, r *http.Request) {
+func (h Handler) UploadCheckRegister(w http.ResponseWriter, r *http.Request) {
 	if isMultipart(r) {
 		h.uploadCheckRegisterCSV(w, r)
 		return
@@ -60,9 +60,9 @@ func (h *Handlers) UploadCheckRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	items := make([]checkpay.UploadItem, 0, len(req.Items))
+	items := make([]paysvc.UploadItem, 0, len(req.Items))
 	for _, in := range req.Items {
-		it := checkpay.UploadItem{
+		it := paysvc.UploadItem{
 			AccountID:   strings.TrimSpace(in.AccountID),
 			CheckNumber: strings.TrimSpace(in.CheckNumber),
 			Amount:      in.Amount,
@@ -82,11 +82,11 @@ func (h *Handlers) UploadCheckRegister(w http.ResponseWriter, r *http.Request) {
 
 	result, err := h.Checks.Upload(r.Context(), fiID, partyID, items)
 	if err != nil {
-		if errors.Is(err, checkpay.ErrFINotFound) {
+		if errors.Is(err, paysvc.ErrFINotFound) {
 			writeError(w, http.StatusNotFound, "FI_NOT_FOUND", err.Error())
 			return
 		}
-		if errors.Is(err, checkpay.ErrPartyNotFound) {
+		if errors.Is(err, paysvc.ErrPartyNotFound) {
 			writeError(w, http.StatusNotFound, "PARTY_NOT_FOUND", err.Error())
 			return
 		}

@@ -8,8 +8,10 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/dmmoody/poz-pay/internal/postgres"
+	"github.com/dmmoody/poz-pay/internal/registerintake"
 	"github.com/dmmoody/poz-pay/internal/registerupload"
-	"github.com/dmmoody/poz-pay/internal/store/postgres"
+	"github.com/dmmoody/poz-pay/internal/tenant"
 )
 
 func TestService_ingestAndResume(t *testing.T) {
@@ -47,8 +49,8 @@ func TestService_ingestAndResume(t *testing.T) {
 		t.Fatalf("account: %v", err)
 	}
 
-	records := postgres.NewRegisterRecords(db)
-	tenants := postgres.NewTenantStore(db)
+	records := registerintake.New(db)
+	tenants := tenant.New(db)
 	svc := registerupload.NewService(tenants, records, 1<<20)
 	body := strings.Join([]string{
 		"routing_number,account_number,check_number,amount,payee,issue_date,void",
